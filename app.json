@@ -2,6 +2,7 @@
   "expo": {
     "name": "exercises_gym",
     "slug": "exercises_gym",
+    "scheme": "exercises-gym",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -10,6 +11,7 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.francisco.exercisesgym",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -23,6 +25,13 @@
     },
     "plugins": [
       "expo-router"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "ad826d1f-95ac-4496-80b3-c9db98997649"
+      }
+    },
+    "owner": "1francisco"
   }
 }

@@ -3,6 +3,7 @@ import { Routine } from '../types/exercise';
 
 const ROUTINES_STORAGE_KEY = '@fitness_routines_v1';
 const ACTIVE_WORKOUT_STORAGE_KEY = '@active_workout_state_v1';
+const WORKOUT_PROGRESS_STORAGE_KEY = '@workout_progress_v1';
 
 export const storage = {
   /**
@@ -87,10 +88,47 @@ export const storage = {
   async clearActiveWorkout(): Promise<boolean> {
     try {
       await AsyncStorage.removeItem(ACTIVE_WORKOUT_STORAGE_KEY);
+      await AsyncStorage.removeItem(WORKOUT_PROGRESS_STORAGE_KEY);
       return true;
     } catch (e) {
       console.error('Error al limpiar entrenamiento activo:', e);
       return false;
+    }
+  },
+
+  /**
+   * Guarda el progreso del entrenamiento activo (currentIndex, isResting, etc.).
+   */
+  async saveWorkoutProgress(progress: {
+    currentIndex: number;
+    isResting: boolean;
+    isPaused: boolean;
+    timeRemaining: number;
+  }): Promise<boolean> {
+    try {
+      await AsyncStorage.setItem(WORKOUT_PROGRESS_STORAGE_KEY, JSON.stringify(progress));
+      return true;
+    } catch (e) {
+      console.error('Error al guardar progreso del entrenamiento:', e);
+      return false;
+    }
+  },
+
+  /**
+   * Carga el progreso guardado del entrenamiento activo.
+   */
+  async getWorkoutProgress(): Promise<{
+    currentIndex: number;
+    isResting: boolean;
+    isPaused: boolean;
+    timeRemaining: number;
+  } | null> {
+    try {
+      const jsonValue = await AsyncStorage.getItem(WORKOUT_PROGRESS_STORAGE_KEY);
+      return jsonValue != null ? JSON.parse(jsonValue) : null;
+    } catch (e) {
+      console.error('Error al obtener progreso del entrenamiento:', e);
+      return null;
     }
   },
 

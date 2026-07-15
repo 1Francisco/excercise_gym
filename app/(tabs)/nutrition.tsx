@@ -6,17 +6,17 @@ import {
   TextInput,
   ScrollView,
   Pressable,
-  SafeAreaView,
   Alert,
   KeyboardAvoidingView,
   Platform,
   Image,
   ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Colors from '../../src/constants/Colors';
 import { storage } from '../../src/services/storage';
 import * as ImagePicker from 'expo-image-picker';
-import foodDatabaseRaw from '../../src/constants/data/food_database.json';
+import { searchLocalDB, searchOpenFoodFacts, ProductSchema } from '../../src/services/foodApi';
 import {
   Calculator,
   User,
@@ -82,24 +82,7 @@ const ACTIVITY_LEVELS: ActivityLevel[] = [
   },
 ];
 
-interface ProductSchema {
-  name: string;
-  type?: string;
-  nutrition: {
-    calories: number;
-    fat: number;
-    carbs: number;
-    protein: number;
-  };
-  price?: {
-    regular_price: number;
-    promotion: number | null;
-  };
-  weight_gr?: number;
-}
-
-// Convert downloaded raw database object to typed array
-const LOCAL_PRODUCTS = Object.values(foodDatabaseRaw) as ProductSchema[];
+// Product search uses mexican_foods.json + food_database.json (Peru) + Open Food Facts API
 
 export default function NutritionScreen() {
   // Saved states from Storage
@@ -131,15 +114,8 @@ export default function NutritionScreen() {
   const [goal, setGoal] = useState<Goal>('mantener');
   const [macroSplit, setMacroSplit] = useState<MacroSplit>('balanced');
   
-  // Temp Calculator Results
-  const [calcResults, setCalcResults] = useState<{
-    bmr: number;
-    tdee: number;
-    targetCalories: number;
-    protein: number;
-    carbs: number;
-    fat: number;
-  } | null>(null);
+  // Whether to show the results section
+  const [showResults, setShowResults] = useState(false);
 
   // Daily Logging Inputs
   const [calorieInputValue, setCalorieInputValue] = useState('');
@@ -258,28 +234,42 @@ export default function NutritionScreen() {
     };
   }, [gender, age, weight, height, selectedActivity, goal, macroSplit]);
 
-  // Autocomplete database search suggestions
+  // Autocomplete database search suggestions (mexican + peruvian)
   const suggestions = useMemo(() => {
     const query = foodTextInput.trim().toLowerCase();
     if (!query || query.length < 2) return [];
 
+    const allNames = [
+      'Tortilla de maíz', 'Tortilla de harina', 'Frijoles refritos', 'Frijoles negros',
+      'Arroz blanco', 'Arroz rojo', 'Aguacate', 'Guacamole',
+      'Pechuga de pollo', 'Milanesa de pollo', 'Bistec de res', 'Carnitas',
+      'Barbacoa', 'Pastor', 'Chorizo', 'Longaniza',
+      'Queso Oaxaca', 'Queso Panela', 'Crema', 'Nopal',
+      'Chile jalapeño', 'Chile serrano', 'Chile poblano',
+      'Huevo', 'Leche', 'Yogurt', 'Panela',
+      'Pescado', 'Atún', 'Salmón', 'Tilapia',
+    ];
+
     const matches: ProductSchema[] = [];
-    for (const item of LOCAL_PRODUCTS) {
-      if (item.name.toLowerCase().includes(query)) {
-        matches.push(item);
-        if (matches.length >= 4) break;
+    for (const item of allNames) {
+      if (item.toLowerCase().includes(query)) {
+        const dbMatch = searchLocalDB(item);
+        if (dbMatch) {
+          matches.push(dbMatch);
+          if (matches.length >= 5) break;
+        }
       }
     }
     return matches;
   }, [foodTextInput]);
 
-  // Handle Calculate & Open Preview
+  // Show Results & Scroll
   const handleCalculate = () => {
     if (!previewMacros) {
       Alert.alert('Error', 'Por favor completa todos los campos con valores válidos.');
       return;
     }
-    setCalcResults(previewMacros);
+    setShowResults(true);
     setTimeout(() => {
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }, 100);
@@ -287,20 +277,20 @@ export default function NutritionScreen() {
 
   // Set calculated values as Active Daily Goal
   const handleSetAsGoal = async () => {
-    if (!calcResults) return;
+    if (!previewMacros) return;
 
     const newGoal = {
-      calories: calcResults.targetCalories,
-      protein: calcResults.protein,
-      carbs: calcResults.carbs,
-      fat: calcResults.fat,
+      calories: previewMacros.targetCalories,
+      protein: previewMacros.protein,
+      carbs: previewMacros.carbs,
+      fat: previewMacros.fat,
       goalType: goal,
     };
 
     const success = await storage.saveCalorieGoal(newGoal);
     if (success) {
       setSavedGoal(newGoal);
-      setCalcResults(null);
+      setShowResults(false);
       setIsCalculatorExpanded(false);
       Alert.alert('Éxito', '¡Meta diaria guardada correctamente!');
       
@@ -328,18 +318,8 @@ export default function NutritionScreen() {
       pDelta = customP;
       cDelta = customC;
       fDelta = customF;
-    } else {
-      // Estimate macros ratio based on active goal split
-      let pPercent = 0.3, cPercent = 0.4, fPercent = 0.3;
-      if (savedGoal && savedGoal.calories > 0) {
-        pPercent = (savedGoal.protein * 4) / savedGoal.calories;
-        cPercent = (savedGoal.carbs * 4) / savedGoal.calories;
-        fPercent = (savedGoal.fat * 9) / savedGoal.calories;
-      }
-      pDelta = Math.round((amount * pPercent) / 4);
-      cDelta = Math.round((amount * cPercent) / 4);
-      fDelta = Math.round((amount * fPercent) / 9);
     }
+    // Botones rápidos solo afectan calorías; macros solo con el analizador
     
     const newProtein = Math.max(0, (todayLog.proteinConsumed || 0) + pDelta);
     const newCarbs = Math.max(0, (todayLog.carbsConsumed || 0) + cDelta);
@@ -367,8 +347,8 @@ export default function NutritionScreen() {
   // Register today's weight
   const handleWeightSubmit = async () => {
     const val = parseFloat(weightInputValue);
-    if (isNaN(val) || val <= 10 || val > 300) {
-      Alert.alert('Error', 'Por favor ingresa un peso válido (10kg - 300kg).');
+    if (isNaN(val) || val <= 0 || val > 500) {
+      Alert.alert('Error', 'Por favor ingresa un peso válido (1kg - 500kg).');
       return;
     }
 
@@ -398,7 +378,7 @@ export default function NutritionScreen() {
         onPress: async () => {
           await storage.saveCalorieGoal({ calories: 0, protein: 0, carbs: 0, fat: 0, goalType: '' });
           setSavedGoal(null);
-          setCalcResults(null);
+          setShowResults(false);
           setIsCalculatorExpanded(true);
         },
       },
@@ -422,9 +402,7 @@ export default function NutritionScreen() {
     if (!result.canceled && result.assets && result.assets.length > 0) {
       setSelectedImageUri(result.assets[0].uri);
       setAnalyzerResults(null);
-      // Pull a real food from database as a mock recognition suggestion
-      const randomIndex = Math.floor(Math.random() * Math.min(100, LOCAL_PRODUCTS.length));
-      setFoodTextInput(LOCAL_PRODUCTS[randomIndex]?.name || 'Pechuga de Pollo');
+      setFoodTextInput('');
     }
   };
 
@@ -444,14 +422,12 @@ export default function NutritionScreen() {
     if (!result.canceled && result.assets && result.assets.length > 0) {
       setSelectedImageUri(result.assets[0].uri);
       setAnalyzerResults(null);
-      // Pull a real food from database as a mock recognition suggestion
-      const randomIndex = Math.floor(Math.random() * Math.min(100, LOCAL_PRODUCTS.length));
-      setFoodTextInput(LOCAL_PRODUCTS[randomIndex]?.name || 'Pechuga de Pollo');
+      setFoodTextInput('');
     }
   };
 
-  // Database-backed search and heuristics
-  const analyzeFood = () => {
+  // Database-backed search (local DB → Open Food Facts API → defaults editables)
+  const analyzeFood = async () => {
     if (!foodTextInput.trim() && !selectedImageUri) {
       Alert.alert('Error', 'Por favor ingresa una descripción o selecciona una foto de tu comida.');
       return;
@@ -459,97 +435,73 @@ export default function NutritionScreen() {
 
     setIsAnalyzing(true);
     setAnalyzerResults(null);
-    setAnalyzingStep('Identificando patrones en la base de datos de Plaza Vea / Makro...');
+    setAnalyzingStep('Buscando en base de datos local...');
 
-    setTimeout(() => {
-      setAnalyzingStep('Calculando volumen y porción estimada (100g)...');
-      setTimeout(() => {
-        setAnalyzingStep('Calculando macronutrientes y micronutrientes asociados...');
-        setTimeout(() => {
-          const query = foodTextInput.trim().toLowerCase();
-          
-          // 1. Try to find a match in the local scraped product database
-          let bestMatch: ProductSchema | null = null;
-          for (const item of LOCAL_PRODUCTS) {
-            const nameLower = item.name.toLowerCase();
-            if (nameLower === query) {
-              bestMatch = item;
-              break;
-            }
-            if (nameLower.includes(query) && (!bestMatch || nameLower.length < bestMatch.name.length)) {
-              bestMatch = item;
-            }
-          }
+    const query = foodTextInput.trim();
 
-          if (bestMatch) {
-            // Generate realistic micronutrients based on the type of product from the database
-            let calcio = '15mg';
-            let hierro = '0.8mg';
-            let sodio = '80mg';
-            let potasio = '200mg';
-            let vitC = '0.0mg';
-            let vitA = '0mcg';
-            
-            const productType = bestMatch.type?.toLowerCase() || '';
-            if (productType.includes('cerdo') || productType.includes('res') || productType.includes('carne')) {
-              calcio = '12mg'; hierro = '2.6mg'; sodio = '65mg'; potasio = '318mg'; vitC = '0mg'; vitA = '0mcg';
-            } else if (productType.includes('embutidos') || productType.includes('chorizo') || productType.includes('jamon') || productType.includes('salchicha')) {
-              calcio = '15mg'; hierro = '1.3mg'; sodio = '750mg'; potasio = '160mg'; vitC = '0mg'; vitA = '0mcg';
-            } else if (productType.includes('pollo') || productType.includes('ave') || productType.includes('pavita')) {
-              calcio = '15mg'; hierro = '1.0mg'; sodio = '74mg'; potasio = '256mg'; vitC = '0mg'; vitA = '0mcg';
-            }
+    // Tier 1: Search local DB (mexican + peruvian)
+    const localMatch = searchLocalDB(query);
 
-            const priceVal = bestMatch.price?.regular_price;
-            const priceString = priceVal ? `S/ ${priceVal.toFixed(2)}` : undefined;
+    if (localMatch) {
+      setIsAnalyzing(false);
+      setAnalyzerResults({
+        name: localMatch.name,
+        calories: Math.round(localMatch.nutrition.calories),
+        protein: localMatch.nutrition.protein,
+        carbs: localMatch.nutrition.carbs,
+        fat: localMatch.nutrition.fat,
+        calcio: '',
+        hierro: '',
+        sodio: '',
+        potasio: '',
+        vitaminaC: '',
+        vitaminaA: '',
+        portion: '100g de porción',
+        priceInfo: undefined,
+      });
+      return;
+    }
 
-            setAnalyzerResults({
-              name: bestMatch.name,
-              calories: Math.round(bestMatch.nutrition.calories),
-              protein: bestMatch.nutrition.protein,
-              carbs: bestMatch.nutrition.carbs,
-              fat: bestMatch.nutrition.fat,
-              calcio,
-              hierro,
-              sodio,
-              potasio,
-              vitaminaC: vitC,
-              vitaminaA: vitA,
-              portion: bestMatch.weight_gr ? `100g (de empaque ${bestMatch.weight_gr}g)` : '100g de porción',
-              priceInfo: priceString,
-            });
-          } else {
-            // 2. Generate consistent values for manual text that doesn't match the database
-            let hash = 0;
-            for (let i = 0; i < foodTextInput.length; i++) {
-              hash = foodTextInput.charCodeAt(i) + ((hash << 5) - hash);
-            }
-            hash = Math.abs(hash);
-            
-            const generatedCals = 120 + (hash % 500); 
-            const generatedP = 4 + (hash % 26); 
-            const generatedF = 1 + ((hash >> 2) % 20); 
-            let generatedC = Math.round((generatedCals - (generatedP * 4) - (generatedF * 9)) / 4);
-            if (generatedC < 0) generatedC = 10 + (hash % 30);
+    // Tier 2: Try Open Food Facts API
+    setAnalyzingStep('Consultando Open Food Facts...');
+    const apiResult = await searchOpenFoodFacts(query);
 
-            setAnalyzerResults({
-              name: foodTextInput.charAt(0).toUpperCase() + foodTextInput.slice(1),
-              calories: generatedCals,
-              protein: generatedP,
-              carbs: generatedC,
-              fat: generatedF,
-              calcio: `${20 + (hash % 120)}mg`,
-              hierro: `${(0.4 + ((hash >> 3) % 3.5)).toFixed(1)}mg`,
-              sodio: `${80 + (hash % 500)}mg`,
-              potasio: `${120 + (hash % 350)}mg`,
-              vitaminaC: `${(hash % 25).toFixed(1)}mg`,
-              vitaminaA: `${(hash % 90)}mcg`,
-              portion: 'Porción estimada',
-            });
-          }
-          setIsAnalyzing(false);
-        }, 800);
-      }, 800);
-    }, 800);
+    if (apiResult) {
+      setIsAnalyzing(false);
+      setAnalyzerResults({
+        name: apiResult.name,
+        calories: apiResult.calories,
+        protein: apiResult.protein,
+        carbs: apiResult.carbs,
+        fat: apiResult.fat,
+        calcio: '',
+        hierro: '',
+        sodio: '',
+        potasio: '',
+        vitaminaC: '',
+        vitaminaA: '',
+        portion: '100g de porción',
+        priceInfo: undefined,
+      });
+      return;
+    }
+
+    // Tier 3: Defaults editables
+    setIsAnalyzing(false);
+    setAnalyzerResults({
+      name: query.charAt(0).toUpperCase() + query.slice(1).toLowerCase(),
+      calories: 200,
+      protein: 15,
+      carbs: 20,
+      fat: 8,
+      calcio: '',
+      hierro: '',
+      sodio: '',
+      potasio: '',
+      vitaminaC: '',
+      vitaminaA: '',
+      portion: 'Valores estimados - edita según tu porción real',
+    });
   };
 
   const handleSelectSuggestion = (suggestion: ProductSchema) => {
@@ -583,9 +535,9 @@ export default function NutritionScreen() {
   // Calculate current today progress details
   const todayCalories = dailyLogs[todayStr]?.caloriesConsumed || 0;
   const todayWeight = dailyLogs[todayStr]?.weight;
-  const todayProtein = dailyLogs[todayStr]?.proteinConsumed || 0;
-  const todayCarbs = dailyLogs[todayStr]?.carbsConsumed || 0;
-  const todayFat = dailyLogs[todayStr]?.fatConsumed || 0;
+  const todayProtein = Math.max(0, dailyLogs[todayStr]?.proteinConsumed || 0);
+  const todayCarbs = Math.max(0, dailyLogs[todayStr]?.carbsConsumed || 0);
+  const todayFat = Math.max(0, dailyLogs[todayStr]?.fatConsumed || 0);
   
   // Find latest weight in log history
   const latestWeight = useMemo(() => {
@@ -600,7 +552,7 @@ export default function NutritionScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1 }}
       >
         <ScrollView
@@ -652,8 +604,10 @@ export default function NutritionScreen() {
 
                 <View style={styles.progressDetailsRow}>
                   <Text style={styles.caloriesRemainingText}>
-                    {todayCalories > savedGoal.calories
+                    {todayCalories >= savedGoal.calories
                       ? `Excedido por ${todayCalories - savedGoal.calories} kcal`
+                      : todayCalories < 0
+                      ? `Saldo negativo: ${todayCalories} kcal`
                       : `Faltan ${savedGoal.calories - todayCalories} kcal para tu meta`}
                   </Text>
                   {latestWeight && (
@@ -676,12 +630,10 @@ export default function NutritionScreen() {
                 <Pressable onPress={() => handleModifyCalories(500)} style={styles.quickAddButton}>
                   <Text style={styles.quickAddButtonText}>+500 kcal</Text>
                 </Pressable>
-                {todayCalories > 0 && (
-                  <Pressable onPress={() => handleModifyCalories(-100)} style={[styles.quickAddButton, styles.quickSubButton]}>
-                    <Minus size={14} color={Colors.dark.accent} />
-                    <Text style={styles.quickSubButtonText}>100</Text>
-                  </Pressable>
-                )}
+                <Pressable onPress={() => handleModifyCalories(-100)} style={[styles.quickAddButton, styles.quickSubButton]}>
+                  <Minus size={14} color={Colors.dark.accent} />
+                  <Text style={styles.quickSubButtonText}>100</Text>
+                </Pressable>
               </View>
 
               {/* Custom Calorie & Weight Row */}
@@ -782,7 +734,7 @@ export default function NutritionScreen() {
                       style={[
                         styles.macroProgressBarFill,
                         {
-                          width: `${Math.min(100, (todayProtein / savedGoal.protein) * 100)}%`,
+                          width: `${Math.min(100, Math.max(0, (todayProtein / savedGoal.protein) * 100))}%`,
                           backgroundColor: '#3b82f6',
                         },
                       ]}
@@ -790,7 +742,7 @@ export default function NutritionScreen() {
                   </View>
                   <Text style={styles.macroProgressRemaining}>
                     {todayProtein >= savedGoal.protein
-                      ? '¡Meta cumplida! 🎉'
+                      ? '¡Meta cumplida!'
                       : `${Math.round(savedGoal.protein - todayProtein)}g restantes`}
                   </Text>
                 </View>
@@ -808,7 +760,7 @@ export default function NutritionScreen() {
                       style={[
                         styles.macroProgressBarFill,
                         {
-                          width: `${Math.min(100, (todayCarbs / savedGoal.carbs) * 100)}%`,
+                          width: `${Math.min(100, Math.max(0, (todayCarbs / savedGoal.carbs) * 100))}%`,
                           backgroundColor: '#ef4444',
                         },
                       ]}
@@ -816,7 +768,7 @@ export default function NutritionScreen() {
                   </View>
                   <Text style={styles.macroProgressRemaining}>
                     {todayCarbs >= savedGoal.carbs
-                      ? '¡Meta cumplida! 🎉'
+                      ? '¡Meta cumplida!'
                       : `${Math.round(savedGoal.carbs - todayCarbs)}g restantes`}
                   </Text>
                 </View>
@@ -834,7 +786,7 @@ export default function NutritionScreen() {
                       style={[
                         styles.macroProgressBarFill,
                         {
-                          width: `${Math.min(100, (todayFat / savedGoal.fat) * 100)}%`,
+                          width: `${Math.min(100, Math.max(0, (todayFat / savedGoal.fat) * 100))}%`,
                           backgroundColor: '#eab308',
                         },
                       ]}
@@ -842,7 +794,7 @@ export default function NutritionScreen() {
                   </View>
                   <Text style={styles.macroProgressRemaining}>
                     {todayFat >= savedGoal.fat
-                      ? '¡Meta cumplida! 🎉'
+                      ? '¡Meta cumplida!'
                       : `${Math.round(savedGoal.fat - todayFat)}g restantes`}
                   </Text>
                 </View>
@@ -855,10 +807,10 @@ export default function NutritionScreen() {
           <View style={styles.analyzerCard}>
             <View style={styles.analyzerHeader}>
               <Sparkles size={20} color="#a855f7" />
-              <Text style={styles.analyzerTitle}>Analizador de Comida Inteligente (IA)</Text>
+              <Text style={styles.analyzerTitle}>Buscador de Alimentos</Text>
             </View>
             <Text style={styles.analyzerSub}>
-              Busca productos de Plaza Vea / Makro o sube una foto de tu plato para desglosar sus nutrientes.
+              Busca productos en la base de datos local (comida mexicana) o en Open Food Facts (+3M productos).
             </Text>
 
             {/* Photo Preview if Selected */}
@@ -903,7 +855,7 @@ export default function NutritionScreen() {
                     <Text style={styles.suggestionText} numberOfLines={1}>
                       {item.name}
                     </Text>
-                    <Text style={styles.suggestionType}>{item.type || 'alimento'}</Text>
+                    <Text style={styles.suggestionType}>{'alimento'}</Text>
                   </Pressable>
                 ))}
               </View>
@@ -1309,7 +1261,7 @@ export default function NutritionScreen() {
           )}
 
           {/* CALCULATION PREVIEW & SET GOAL DASHBOARD */}
-          {calcResults && (
+          {showResults && previewMacros && (
             <View style={styles.resultsCard}>
               <View style={styles.resultsHeader}>
                 <Flame size={24} color={Colors.dark.primary} />
@@ -1319,7 +1271,7 @@ export default function NutritionScreen() {
               {/* Calories Target */}
               <View style={styles.caloriesBanner}>
                 <Text style={styles.caloriesNumber}>
-                  {calcResults.targetCalories.toLocaleString()}
+                  {previewMacros.targetCalories.toLocaleString()}
                 </Text>
                 <Text style={styles.caloriesLabel}>kcal / día recomendadas</Text>
                 <View style={[styles.goalBadge, styles[`goalBadge_${goal}`]]}>
@@ -1337,11 +1289,11 @@ export default function NutritionScreen() {
               <View style={styles.statsRow}>
                 <View style={styles.statBox}>
                   <Text style={styles.statLabel}>Metabolismo Basal (BMR)</Text>
-                  <Text style={styles.statValue}>{calcResults.bmr} kcal</Text>
+                  <Text style={styles.statValue}>{previewMacros.bmr} kcal</Text>
                 </View>
                 <View style={styles.statBox}>
                   <Text style={styles.statLabel}>Gasto Diario (TDEE)</Text>
-                  <Text style={styles.statValue}>{calcResults.tdee} kcal</Text>
+                  <Text style={styles.statValue}>{previewMacros.tdee} kcal</Text>
                 </View>
               </View>
 
@@ -1349,15 +1301,15 @@ export default function NutritionScreen() {
               <View style={styles.macrosContainer}>
                 <View style={styles.macroStatRow}>
                   <Text style={styles.macroStatName}>Proteínas:</Text>
-                  <Text style={styles.macroStatVal}>{calcResults.protein}g</Text>
+                  <Text style={styles.macroStatVal}>{previewMacros.protein}g</Text>
                 </View>
                 <View style={styles.macroStatRow}>
                   <Text style={styles.macroStatName}>Carbohidratos:</Text>
-                  <Text style={styles.macroStatVal}>{calcResults.carbs}g</Text>
+                  <Text style={styles.macroStatVal}>{previewMacros.carbs}g</Text>
                 </View>
                 <View style={styles.macroStatRow}>
                   <Text style={styles.macroStatName}>Grasas:</Text>
-                  <Text style={styles.macroStatVal}>{calcResults.fat}g</Text>
+                  <Text style={styles.macroStatVal}>{previewMacros.fat}g</Text>
                 </View>
               </View>
 
@@ -1916,31 +1868,6 @@ const styles = StyleSheet.create({
     fontSize: 8,
     fontWeight: '700',
   },
-  macroPillsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 8,
-  },
-  macroPill: {
-    flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.02)',
-    borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
-    borderLeftWidth: 4,
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-  },
-  macroPillLabel: {
-    color: Colors.dark.textMuted,
-    fontSize: 10,
-  },
-  macroPillVal: {
-    color: Colors.dark.text,
-    fontSize: 15,
-    fontWeight: '700',
-    marginTop: 2,
-  },
   collapseHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -2195,11 +2122,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-  },
-  resultCaloriesText: {
-    color: Colors.dark.primary,
-    fontSize: 20,
-    fontWeight: '800',
   },
   resultPriceText: {
     color: '#eab308',

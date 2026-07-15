@@ -5,8 +5,8 @@ import {
   View,
   ScrollView,
   Pressable,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Colors from '../../src/constants/Colors';
 import useWorkoutRunner from '../../src/hooks/useWorkoutRunner';
 import ExerciseVisualizer from '../../src/components/ExerciseVisualizer';

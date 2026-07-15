@@ -27,9 +27,14 @@
   },
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web"
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "scrape": "node scripts/scrape.js",
+    "scrape:openfoodfacts": "node scripts/scrape.js --source openfoodfacts-mx",
+    "scrape:walmart": "node scripts/scrape.js --source walmart-mx",
+    "scrape:chedraui": "node scripts/scrape.js --source chedraui-mx",
+    "scrape:soriana": "node scripts/scrape.js --source soriana-mx"
   },
   "private": true
 }
