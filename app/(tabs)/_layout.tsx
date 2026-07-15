@@ -1,36 +1,54 @@
+import { useEffect } from 'react';
 import { Tabs } from 'expo-router';
-import Colors from '../../src/constants/Colors';
-import { Dumbbell, ClipboardList, Play, Flame } from 'lucide-react-native';
+import { useTheme } from '../../src/contexts/ThemeContext';
+import { Dumbbell, ClipboardList, Play, BarChart3, Flame, Sun, Moon } from 'lucide-react-native';
+import { Pressable } from 'react-native';
+import { configureNotificationHandler } from '../../src/services/notifications';
 
 export default function TabsLayout() {
+  const { colors, mode, toggle } = useTheme();
+
+  useEffect(() => {
+    configureNotificationHandler();
+  }, []);
+
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors.dark.primary,
-        tabBarInactiveTintColor: Colors.dark.tabIconDefault,
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.tabIconDefault,
         tabBarStyle: {
-          backgroundColor: Colors.dark.card,
-          borderTopColor: Colors.dark.cardBorder,
+          backgroundColor: colors.card,
+          borderTopColor: colors.cardBorder,
           borderTopWidth: 1,
           height: 60,
           paddingBottom: 8,
           paddingTop: 8,
         },
         headerStyle: {
-          backgroundColor: Colors.dark.card,
-          borderBottomColor: Colors.dark.cardBorder,
+          backgroundColor: colors.card,
+          borderBottomColor: colors.cardBorder,
           borderBottomWidth: 1,
           shadowOpacity: 0,
           elevation: 0,
         },
-        headerTintColor: Colors.dark.text,
+        headerTintColor: colors.text,
         headerTitleStyle: {
           fontWeight: 'bold',
           fontSize: 20,
         },
         sceneStyle: {
-          backgroundColor: Colors.dark.background,
+          backgroundColor: colors.background,
         },
+        headerRight: () => (
+          <Pressable onPress={toggle} style={{ marginRight: 16, padding: 4 }}>
+            {mode === 'dark' ? (
+              <Sun size={20} color={colors.textMuted} />
+            ) : (
+              <Moon size={20} color={colors.textMuted} />
+            )}
+          </Pressable>
+        ),
       }}
     >
       <Tabs.Screen
@@ -60,6 +78,16 @@ export default function TabsLayout() {
           headerTitle: 'Entrenamiento en Vivo',
           tabBarIcon: ({ color, size }) => (
             <Play color={color} size={size} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="progress"
+        options={{
+          title: 'Progreso',
+          headerTitle: 'Historial y Progreso',
+          tabBarIcon: ({ color, size }) => (
+            <BarChart3 color={color} size={size} />
           ),
         }}
       />

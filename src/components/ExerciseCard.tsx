@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { StyleSheet, Text, View, Pressable } from 'react-native';
 import { Link } from 'expo-router';
 import { Exercise } from '../types/exercise';
@@ -6,6 +6,7 @@ import Colors from '../constants/Colors';
 import ExerciseVisualizer from './ExerciseVisualizer';
 import { ChevronRight } from 'lucide-react-native';
 import { translateMuscle, translateEquipment, translateExerciseName } from '../constants/Translations';
+import { useTheme } from '../contexts/ThemeContext';
 
 
 interface ExerciseCardProps {
@@ -15,6 +16,8 @@ interface ExerciseCardProps {
 }
 
 export default function ExerciseCard({ exercise, onPress, rightElement }: ExerciseCardProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const CardContent = (
     <View style={styles.cardInner}>
       <ExerciseVisualizer
@@ -40,7 +43,7 @@ export default function ExerciseCard({ exercise, onPress, rightElement }: Exerci
       {rightElement ? (
         <View style={styles.rightActionContainer}>{rightElement}</View>
       ) : (
-        <ChevronRight size={18} color={Colors.dark.textMuted} style={styles.chevron} />
+        <ChevronRight size={18} color={colors.textMuted} style={styles.chevron} />
       )}
     </View>
   );
@@ -62,67 +65,69 @@ export default function ExerciseCard({ exercise, onPress, rightElement }: Exerci
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
-    backgroundColor: Colors.dark.card,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
-    marginBottom: 10,
-    overflow: 'hidden',
-  },
-  cardPressed: {
-    backgroundColor: '#27272a',
-    borderColor: Colors.dark.primary,
-  },
-  cardInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 10,
-  },
-  thumbnail: {
-    width: 60,
-    height: 60,
-    borderRadius: 8,
-  },
-  infoContainer: {
-    flex: 1,
-    marginLeft: 12,
-    justifyContent: 'center',
-  },
-  name: {
-    color: Colors.dark.text,
-    fontSize: 16,
-    fontWeight: '600',
-    textTransform: 'capitalize',
-    marginBottom: 6,
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  bodyPartBadge: {
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-  },
-  equipmentBadge: {
-    backgroundColor: 'rgba(113, 113, 122, 0.2)',
-  },
-  badgeText: {
-    color: Colors.dark.textMuted,
-    fontSize: 11,
-    fontWeight: '500',
-    textTransform: 'capitalize',
-  },
-  chevron: {
-    marginLeft: 8,
-  },
-  rightActionContainer: {
-    marginLeft: 8,
-  },
-});
+function createStyles(colors: typeof Colors.dark) {
+  return StyleSheet.create({
+    card: {
+      backgroundColor: colors.card,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+      marginBottom: 10,
+      overflow: 'hidden',
+    },
+    cardPressed: {
+      backgroundColor: '#27272a',
+      borderColor: colors.primary,
+    },
+    cardInner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 10,
+    },
+    thumbnail: {
+      width: 60,
+      height: 60,
+      borderRadius: 8,
+    },
+    infoContainer: {
+      flex: 1,
+      marginLeft: 12,
+      justifyContent: 'center',
+    },
+    name: {
+      color: colors.text,
+      fontSize: 16,
+      fontWeight: '600',
+      textTransform: 'capitalize',
+      marginBottom: 6,
+    },
+    badgeRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 6,
+    },
+    badge: {
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+      borderRadius: 4,
+    },
+    bodyPartBadge: {
+      backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    },
+    equipmentBadge: {
+      backgroundColor: 'rgba(113, 113, 122, 0.2)',
+    },
+    badgeText: {
+      color: colors.textMuted,
+      fontSize: 11,
+      fontWeight: '500',
+      textTransform: 'capitalize',
+    },
+    chevron: {
+      marginLeft: 8,
+    },
+    rightActionContainer: {
+      marginLeft: 8,
+    },
+  });
+}

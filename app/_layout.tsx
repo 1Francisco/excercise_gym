@@ -1,23 +1,31 @@
+import { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import Colors from '../src/constants/Colors';
+import { ThemeProvider, useTheme } from '../src/contexts/ThemeContext';
+import { configureNotificationHandler } from '../src/services/notifications';
 
-export default function RootLayout() {
+function RootLayoutInner() {
+  const { mode, colors } = useTheme();
+
+  useEffect(() => {
+    configureNotificationHandler();
+  }, []);
+
   return (
-    <SafeAreaProvider style={{ backgroundColor: Colors.dark.background }}>
-      <StatusBar style="light" />
+    <SafeAreaProvider style={{ backgroundColor: colors.background }}>
+      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <Stack
         screenOptions={{
           headerStyle: {
-            backgroundColor: Colors.dark.card,
+            backgroundColor: colors.card,
           },
-          headerTintColor: Colors.dark.text,
+          headerTintColor: colors.text,
           headerTitleStyle: {
             fontWeight: 'bold',
           },
           contentStyle: {
-            backgroundColor: Colors.dark.background,
+            backgroundColor: colors.background,
           },
         }}
       >
@@ -27,16 +35,24 @@ export default function RootLayout() {
           options={{
             presentation: 'modal',
             title: 'Detalle del Ejercicio',
-            headerStyle: {
-              backgroundColor: Colors.dark.card,
-            },
-            headerTitleStyle: {
-              color: Colors.dark.text,
-            },
-            headerTintColor: Colors.dark.primary,
+          }}
+        />
+        <Stack.Screen
+          name="routine/[id]"
+          options={{
+            presentation: 'card',
+            headerShown: false,
           }}
         />
       </Stack>
     </SafeAreaProvider>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <ThemeProvider>
+      <RootLayoutInner />
+    </ThemeProvider>
   );
 }

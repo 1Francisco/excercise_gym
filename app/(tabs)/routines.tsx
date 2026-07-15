@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   StyleSheet,
   Text,
@@ -7,34 +7,59 @@ import {
   Pressable,
   Modal,
   TextInput,
-  ScrollView,
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Colors from '../../src/constants/Colors';
+import { useTheme } from '../../src/contexts/ThemeContext';
 import { translateMuscle, translateExerciseName } from '../../src/constants/Translations';
 import { storage } from '../../src/services/storage';
 import { exercises } from '../../src/hooks/useExerciseFilter';
 import { Routine, Exercise } from '../../src/types/exercise';
-import ExerciseCard from '../../src/components/ExerciseCard';
-import { Plus, Trash2, Play, X, Check, Search } from 'lucide-react-native';
-import { useMemo } from 'react';
+import SkeletonCard from '../../src/components/SkeletonCard';
+import { DEFAULT_ROUTINES } from '../../src/constants/defaultRoutines';
+import { Plus, Trash2, Play, Edit3, X, Check, Search, Copy, Bell, BellOff } from 'lucide-react-native';
+import { requestNotificationPermissions, scheduleDailyReminder, cancelAllScheduled, getSavedReminder } from '../../src/services/notifications';
 
 export default function RoutinesScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const router = useRouter();
   const [routines, setRoutines] = useState<Routine[]>([]);
+  const [isLoadingRoutines, setIsLoadingRoutines] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
   
   // Form State
   const [routineName, setRoutineName] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedExerciseIds, setSelectedExerciseIds] = useState<string[]>([]);
 
+  // Notification states
+  const [reminderEnabled, setReminderEnabled] = useState(false);
+  const [reminderHour, setReminderHour] = useState(8);
+  const [reminderMinute, setReminderMinute] = useState(0);
+  const [reminderActive, setReminderActive] = useState(false);
+
+  // Load saved reminder on mount
+  useEffect(() => {
+    getSavedReminder().then((saved) => {
+      if (saved) {
+        setReminderHour(saved.hour);
+        setReminderMinute(saved.minute);
+        setReminderActive(true);
+        setReminderEnabled(true);
+      }
+    });
+  }, []);
+
   // Load routines from AsyncStorage
   const loadRoutines = async () => {
+    setIsLoadingRoutines(true);
     const list = await storage.getRoutines();
     setRoutines(list);
+    setIsLoadingRoutines(false);
   };
 
   useEffect(() => {
@@ -87,6 +112,23 @@ export default function RoutinesScreen() {
     }
   };
 
+  const handleCreateFromTemplate = async (template: typeof DEFAULT_ROUTINES[0]) => {
+    const newRoutine: Routine = {
+      id: Date.now().toString(),
+      name: template.name,
+      exerciseIds: template.exercises.map((e) => e.exerciseId),
+      exercises: template.exercises,
+      createdAt: new Date().toISOString(),
+    };
+    await storage.saveRoutine(newRoutine);
+    setShowTemplates(false);
+    loadRoutines();
+  };
+
+  const handleEditRoutine = (id: string) => {
+    router.push(`/routine/${id}`);
+  };
+
   const handleDeleteRoutine = async (id: string) => {
     Alert.alert('Eliminar Rutina', '¿Estás seguro de que deseas eliminar esta rutina?', [
       { text: 'Cancelar', style: 'cancel' },
@@ -103,26 +145,137 @@ export default function RoutinesScreen() {
 
   const handleStartWorkout = async (routine: Routine) => {
     await storage.saveActiveWorkout(routine.exerciseIds);
-    // Redirect to the Active Workout tab
+    if (routine.exercises && routine.exercises.length > 0) {
+      await storage.saveWorkoutExerciseConfig(routine.exercises);
+    }
     router.navigate('/(tabs)/active-workout');
   };
+
+  const handleToggleReminder = async () => {
+    if (reminderEnabled) {
+      await cancelAllScheduled();
+      setReminderActive(false);
+      setReminderEnabled(false);
+    } else {
+      const granted = await requestNotificationPermissions();
+      if (granted) {
+        setReminderEnabled(true);
+      }
+    }
+  };
+
+  const handleSaveReminder = async () => {
+    if (!reminderEnabled) return;
+    const id = await scheduleDailyReminder(reminderHour, reminderMinute);
+    if (id) {
+      setReminderActive(true);
+    }
+  };
+
+  const handleCancelReminder = async () => {
+    await cancelAllScheduled();
+    setReminderActive(false);
+    setReminderEnabled(false);
+  };
+
+  const renderNotificationSection = () => (
+    <View style={styles.notificationSection}>
+      <View style={styles.notificationHeader}>
+        <Text style={styles.sectionTitle}>Recordatorio Diario</Text>
+        <Pressable onPress={handleToggleReminder} style={styles.toggleButton}>
+          {reminderEnabled ? (
+            <Bell size={20} color={colors.primary} />
+          ) : (
+            <BellOff size={20} color={colors.textMuted} />
+          )}
+        </Pressable>
+      </View>
+      {reminderEnabled && (
+        <View style={styles.reminderBody}>
+          <View style={styles.timeRow}>
+            <Text style={styles.timeLabel}>Hora:</Text>
+            <View style={styles.timeInputGroup}>
+              <Pressable
+                onPress={() => setReminderHour((reminderHour + 23) % 24)}
+                style={styles.timeAdjust}
+              >
+                <Text style={styles.timeAdjustText}>-1h</Text>
+              </Pressable>
+              <Text style={styles.timeValue}>
+                {String(reminderHour).padStart(2, '0')}:{String(reminderMinute).padStart(2, '0')}
+              </Text>
+              <Pressable
+                onPress={() => setReminderHour((reminderHour + 1) % 24)}
+                style={styles.timeAdjust}
+              >
+                <Text style={styles.timeAdjustText}>+1h</Text>
+              </Pressable>
+            </View>
+          </View>
+          <View style={styles.timeRow}>
+            <Text style={styles.timeLabel}>Minuto:</Text>
+            <View style={styles.timeInputGroup}>
+              <Pressable
+                onPress={() => setReminderMinute((reminderMinute + 55) % 60)}
+                style={styles.timeAdjust}
+              >
+                <Text style={styles.timeAdjustText}>-5m</Text>
+              </Pressable>
+              <Text style={styles.timeValue}>
+                {String(reminderHour).padStart(2, '0')}:{String(reminderMinute).padStart(2, '0')}
+              </Text>
+              <Pressable
+                onPress={() => setReminderMinute((reminderMinute + 5) % 60)}
+                style={styles.timeAdjust}
+              >
+                <Text style={styles.timeAdjustText}>+5m</Text>
+              </Pressable>
+            </View>
+          </View>
+          <View style={styles.reminderActions}>
+            <Pressable onPress={handleSaveReminder} style={styles.saveReminderButton}>
+              <Text style={styles.saveReminderText}>Guardar Recordatorio</Text>
+            </Pressable>
+            {reminderActive && (
+              <Pressable onPress={handleCancelReminder} style={styles.cancelReminderButton}>
+                <Text style={styles.cancelReminderText}>Cancelar Recordatorio</Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
+      )}
+    </View>
+  );
 
   return (
     <SafeAreaView style={styles.container}>
       {/* Header button to add routine */}
       <View style={styles.headerRow}>
         <Text style={styles.infoText}>Crea y gestiona tus propios planes de entrenamiento</Text>
-        <Pressable onPress={() => setIsModalOpen(true)} style={styles.createButton}>
-          <Plus size={18} color={Colors.dark.background} />
-          <Text style={styles.createButtonText}>Nueva Rutina</Text>
-        </Pressable>
+        <View style={styles.headerButtons}>
+          <Pressable onPress={() => setShowTemplates(true)} style={styles.templateButton}>
+            <Copy size={16} color={colors.primary} />
+          </Pressable>
+          <Pressable onPress={() => setIsModalOpen(true)} style={styles.createButton}>
+            <Plus size={18} color={colors.background} />
+            <Text style={styles.createButtonText}>Nueva Rutina</Text>
+          </Pressable>
+        </View>
       </View>
 
       {/* Routines list */}
+      {isLoadingRoutines ? (
+        <View style={styles.listContainer}>
+          <SkeletonCard height={80} lines={2} />
+          <SkeletonCard height={80} lines={2} />
+          <SkeletonCard height={80} lines={2} />
+        </View>
+      ) : (
       <FlatList
         data={routines}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContainer}
+        ListFooterComponent={renderNotificationSection}
         renderItem={({ item }) => {
           const matchedExercises = item.exerciseIds
             .map((id) => exercises.find((ex) => ex.id === id))
@@ -145,14 +298,20 @@ export default function RoutinesScreen() {
                   onPress={() => handleStartWorkout(item)}
                   style={styles.startWorkoutButton}
                 >
-                  <Play size={14} color={Colors.dark.background} fill={Colors.dark.background} />
+                  <Play size={14} color={colors.background} fill={colors.background} />
                   <Text style={styles.startWorkoutText}>Entrenar</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => handleEditRoutine(item.id)}
+                  style={styles.editButton}
+                >
+                  <Edit3 size={16} color={colors.primary} />
                 </Pressable>
                 <Pressable
                   onPress={() => handleDeleteRoutine(item.id)}
                   style={styles.deleteButton}
                 >
-                  <Trash2 size={16} color={Colors.dark.accent} />
+                  <Trash2 size={16} color={colors.accent} />
                 </Pressable>
               </View>
             </View>
@@ -167,14 +326,15 @@ export default function RoutinesScreen() {
           </View>
         }
       />
-
+      )}
+ 
       {/* Add Routine Modal */}
       <Modal visible={isModalOpen} animationType="slide" presentationStyle="pageSheet">
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Crear Rutina</Text>
             <Pressable onPress={() => setIsModalOpen(false)} style={styles.modalClose}>
-              <X size={20} color={Colors.dark.text} />
+              <X size={20} color={colors.text} />
             </Pressable>
           </View>
 
@@ -183,7 +343,7 @@ export default function RoutinesScreen() {
             <Text style={styles.label}>Nombre de la rutina</Text>
             <TextInput
               placeholder="Ej: Día de Pecho, Piernas en Casa..."
-              placeholderTextColor={Colors.dark.textMuted}
+              placeholderTextColor={colors.textMuted}
               value={routineName}
               onChangeText={setRoutineName}
               style={styles.textInput}
@@ -194,17 +354,17 @@ export default function RoutinesScreen() {
 
             {/* Checklist Search */}
             <View style={styles.checklistSearchContainer}>
-              <Search size={16} color={Colors.dark.textMuted} />
+              <Search size={16} color={colors.textMuted} />
               <TextInput
                 placeholder="Buscar ejercicios..."
-                placeholderTextColor={Colors.dark.textMuted}
+                placeholderTextColor={colors.textMuted}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
                 style={styles.checklistSearchInput}
               />
               {searchQuery !== '' && (
                 <Pressable onPress={() => setSearchQuery('')}>
-                  <X size={16} color={Colors.dark.text} />
+                  <X size={16} color={colors.text} />
                 </Pressable>
               )}
             </View>
@@ -224,7 +384,7 @@ export default function RoutinesScreen() {
                   >
                     <View style={styles.checklistLeft}>
                       <View style={[styles.checkbox, isSelected && styles.checkboxActive]}>
-                        {isSelected && <Check size={12} color={Colors.dark.background} />}
+                        {isSelected && <Check size={12} color={colors.background} />}
                       </View>
                       <Text style={[styles.checklistName, isSelected && styles.checklistNameActive]}>
                         {translateExerciseName(item.name)}
@@ -248,14 +408,48 @@ export default function RoutinesScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Templates Modal */}
+      <Modal visible={showTemplates} animationType="slide" presentationStyle="pageSheet">
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Plantillas de Rutina</Text>
+            <Pressable onPress={() => setShowTemplates(false)} style={styles.modalClose}>
+              <X size={20} color={colors.text} />
+            </Pressable>
+          </View>
+          <View style={styles.modalBody}>
+            <Text style={styles.modalSub}>Selecciona una plantilla para crear una rutina predefinida:</Text>
+            <FlatList
+              data={DEFAULT_ROUTINES}
+              keyExtractor={(_, i) => String(i)}
+              contentContainerStyle={{ paddingBottom: 24 }}
+              renderItem={({ item }) => (
+                <Pressable
+                  onPress={() => handleCreateFromTemplate(item)}
+                  style={styles.templateCard}
+                >
+                  <Text style={styles.templateName}>{item.name}</Text>
+                  <Text style={styles.templateDesc}>{item.description}</Text>
+                  <Text style={styles.templateCount}>{item.exercises.length} ejercicios</Text>
+                </Pressable>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: typeof Colors.dark) {
+  const pR = parseInt(colors.primary.slice(1, 3), 16);
+  const pG = parseInt(colors.primary.slice(3, 5), 16);
+  const pB = parseInt(colors.primary.slice(5, 7), 16);
+  return StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.dark.background,
+    backgroundColor: colors.background,
   },
   headerRow: {
     paddingHorizontal: 16,
@@ -264,25 +458,40 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     borderBottomWidth: 1,
-    borderBottomColor: Colors.dark.cardBorder,
+    borderBottomColor: colors.cardBorder,
   },
   infoText: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 12,
     flex: 1,
     marginRight: 16,
     lineHeight: 18,
   },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  templateButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: `rgba(${pR}, ${pG}, ${pB}, 0.1)`,
+    borderWidth: 1,
+    borderColor: `rgba(${pR}, ${pG}, ${pB}, 0.3)`,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   createButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.dark.primary,
+    backgroundColor: colors.primary,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
   },
   createButtonText: {
-    color: Colors.dark.background,
+    color: colors.background,
     fontWeight: '700',
     fontSize: 13,
     marginLeft: 4,
@@ -292,10 +501,10 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   routineCard: {
-    backgroundColor: Colors.dark.card,
+    backgroundColor: colors.card,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     padding: 16,
     marginBottom: 12,
     flexDirection: 'row',
@@ -307,13 +516,13 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   routineName: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 18,
     fontWeight: '700',
     marginBottom: 4,
   },
   routineDetails: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 13,
     textTransform: 'capitalize',
   },
@@ -325,16 +534,21 @@ const styles = StyleSheet.create({
   startWorkoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.dark.primary,
+    backgroundColor: colors.primary,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
   },
   startWorkoutText: {
-    color: Colors.dark.background,
+    color: colors.background,
     fontWeight: '700',
     fontSize: 13,
     marginLeft: 4,
+  },
+  editButton: {
+    padding: 8,
+    backgroundColor: `rgba(${pR}, ${pG}, ${pB}, 0.1)`,
+    borderRadius: 8,
   },
   deleteButton: {
     padding: 8,
@@ -348,20 +562,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   emptyTitle: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 18,
     fontWeight: '700',
     marginBottom: 8,
   },
   emptySubtitle: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 14,
     textAlign: 'center',
     lineHeight: 20,
   },
   modalContainer: {
     flex: 1,
-    backgroundColor: Colors.dark.background,
+    backgroundColor: colors.background,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -370,11 +584,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.dark.cardBorder,
-    backgroundColor: Colors.dark.card,
+    borderBottomColor: colors.cardBorder,
+    backgroundColor: colors.card,
   },
   modalTitle: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 20,
     fontWeight: '800',
   },
@@ -386,7 +600,7 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   label: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 13,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -395,20 +609,20 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   textInput: {
-    backgroundColor: Colors.dark.card,
-    borderColor: Colors.dark.cardBorder,
+    backgroundColor: colors.card,
+    borderColor: colors.cardBorder,
     borderWidth: 1,
     borderRadius: 8,
     padding: 12,
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 16,
     marginBottom: 16,
   },
   checklistSearchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.dark.card,
-    borderColor: Colors.dark.cardBorder,
+    backgroundColor: colors.card,
+    borderColor: colors.cardBorder,
     borderWidth: 1,
     borderRadius: 8,
     paddingHorizontal: 12,
@@ -417,16 +631,16 @@ const styles = StyleSheet.create({
   },
   checklistSearchInput: {
     flex: 1,
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 14,
     marginLeft: 8,
   },
   checklist: {
     flex: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     borderWidth: 1,
     borderRadius: 8,
-    backgroundColor: Colors.dark.card,
+    backgroundColor: colors.card,
   },
   checklistItem: {
     flexDirection: 'row',
@@ -435,10 +649,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.dark.cardBorder,
+    borderBottomColor: colors.cardBorder,
   },
   checklistItemActive: {
-    backgroundColor: 'rgba(16, 185, 129, 0.05)',
+    backgroundColor: `rgba(${pR}, ${pG}, ${pB}, 0.05)`,
   },
   checklistLeft: {
     flexDirection: 'row',
@@ -450,50 +664,179 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 4,
     borderWidth: 2,
-    borderColor: Colors.dark.tabIconDefault,
+    borderColor: colors.tabIconDefault,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
   },
   checkboxActive: {
-    borderColor: Colors.dark.primary,
-    backgroundColor: Colors.dark.primary,
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
   },
   checklistName: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 15,
     fontWeight: '500',
     textTransform: 'capitalize',
   },
   checklistNameActive: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontWeight: '600',
   },
   checklistDetails: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 12,
     textTransform: 'uppercase',
   },
   emptyChecklist: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     textAlign: 'center',
     paddingVertical: 20,
   },
   modalFooter: {
     padding: 20,
     borderTopWidth: 1,
-    borderTopColor: Colors.dark.cardBorder,
-    backgroundColor: Colors.dark.card,
+    borderTopColor: colors.cardBorder,
+    backgroundColor: colors.card,
   },
   saveButton: {
-    backgroundColor: Colors.dark.primary,
+    backgroundColor: colors.primary,
     paddingVertical: 14,
     borderRadius: 8,
     alignItems: 'center',
   },
   saveButtonText: {
-    color: Colors.dark.background,
+    color: colors.background,
     fontWeight: '700',
     fontSize: 16,
   },
+  // ─── Notification Reminder ───────────────────────────
+  notificationSection: {
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    padding: 16,
+    marginTop: 12,
+    marginBottom: 24,
+  },
+  notificationHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  sectionTitle: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  toggleButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: `rgba(${pR}, ${pG}, ${pB}, 0.1)`,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reminderBody: {
+    marginTop: 16,
+    gap: 12,
+  },
+  timeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  timeLabel: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  timeInputGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  timeAdjust: {
+    width: 44,
+    height: 32,
+    borderRadius: 6,
+    backgroundColor: `rgba(${pR}, ${pG}, ${pB}, 0.1)`,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  timeAdjustText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  timeValue: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '800',
+    minWidth: 56,
+    textAlign: 'center',
+  },
+  reminderActions: {
+    marginTop: 8,
+    gap: 8,
+  },
+  saveReminderButton: {
+    backgroundColor: colors.primary,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  saveReminderText: {
+    color: colors.background,
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  cancelReminderButton: {
+    backgroundColor: `rgba(${pR}, ${pG}, ${pB}, 0.1)`,
+    borderWidth: 1,
+    borderColor: `rgba(${pR}, ${pG}, ${pB}, 0.3)`,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  cancelReminderText: {
+    color: colors.accent,
+    fontWeight: '700',
+    fontSize: 14,
+  },
+
+  modalSub: {
+    color: colors.textMuted,
+    fontSize: 14,
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  templateCard: {
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    padding: 16,
+    marginBottom: 10,
+  },
+  templateName: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  templateDesc: {
+    color: colors.textMuted,
+    fontSize: 13,
+    marginBottom: 6,
+  },
+  templateCount: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
 });
+}

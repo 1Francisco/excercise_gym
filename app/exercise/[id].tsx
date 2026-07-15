@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { StyleSheet, Text, View, ScrollView, Pressable, Modal, FlatList, TextInput, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Colors from '../../src/constants/Colors';
+import { useTheme } from '../../src/contexts/ThemeContext';
 import { exercises } from '../../src/hooks/useExerciseFilter';
 import { storage } from '../../src/services/storage';
 import { Routine } from '../../src/types/exercise';
@@ -21,6 +22,8 @@ export default function ExerciseDetailScreen() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [newRoutineName, setNewRoutineName] = useState('');
+  const { colors } = useTheme();
+  const styles = React.useMemo(() => createStyles(colors), [colors]);
 
   const loadRoutines = async () => {
     const list = await storage.getRoutines();
@@ -107,7 +110,7 @@ export default function ExerciseDetailScreen() {
               }}
               style={styles.addToRoutineButton}
             >
-              <Plus size={18} color={Colors.dark.background} />
+              <Plus size={18} color={colors.background} />
               <Text style={styles.addToRoutineButtonText}>Rutina</Text>
             </Pressable>
           </View>
@@ -152,7 +155,7 @@ export default function ExerciseDetailScreen() {
             <View style={styles.stepsList}>
               {steps.map((step, index) => (
                 <View key={index} style={styles.stepItem}>
-                  <CheckCircle2 size={18} color={Colors.dark.primary} style={styles.stepIcon} />
+                  <CheckCircle2 size={18} color={colors.primary} style={styles.stepIcon} />
                   <Text style={styles.stepText}>{step}</Text>
                 </View>
               ))}
@@ -161,7 +164,7 @@ export default function ExerciseDetailScreen() {
 
           {/* Attribution footer */}
           <View style={styles.attributionContainer}>
-            <Info size={14} color={Colors.dark.textMuted} />
+            <Info size={14} color={colors.textMuted} />
             <Text style={styles.attributionText}>{exercise.attribution}</Text>
           </View>
         </View>
@@ -182,7 +185,7 @@ export default function ExerciseDetailScreen() {
                 }}
                 style={styles.modalClose}
               >
-                <X size={20} color={Colors.dark.text} />
+                <X size={20} color={colors.text} />
               </Pressable>
             </View>
 
@@ -193,13 +196,13 @@ export default function ExerciseDetailScreen() {
                   <TextInput
                     style={styles.textInput}
                     placeholder="Ej: Día de Pecho, Full Body..."
-                    placeholderTextColor={Colors.dark.textMuted}
+                    placeholderTextColor={colors.textMuted}
                     value={newRoutineName}
                     onChangeText={setNewRoutineName}
                     autoFocus
                   />
                   <Pressable onPress={handleCreateAndAdd} style={styles.saveButton}>
-                    <Check size={18} color={Colors.dark.background} />
+                    <Check size={18} color={colors.background} />
                     <Text style={styles.saveButtonText}>Crear y Añadir</Text>
                   </Pressable>
                   <Pressable
@@ -221,7 +224,7 @@ export default function ExerciseDetailScreen() {
                     }}
                     style={styles.createNewButton}
                   >
-                    <FolderPlus size={18} color={Colors.dark.background} />
+                    <FolderPlus size={18} color={colors.background} />
                     <Text style={styles.createNewButtonText}>Nueva Rutina</Text>
                   </Pressable>
                 </View>
@@ -248,7 +251,7 @@ export default function ExerciseDetailScreen() {
                               {alreadyHas ? ' (ya incluido)' : ''}
                             </Text>
                           </View>
-                          <Plus size={18} color={alreadyHas ? Colors.dark.textMuted : Colors.dark.primary} />
+                          <Plus size={18} color={alreadyHas ? colors.textMuted : colors.primary} />
                         </Pressable>
                       );
                     }}
@@ -260,7 +263,7 @@ export default function ExerciseDetailScreen() {
                     }}
                     style={styles.createNewButton}
                   >
-                    <FolderPlus size={18} color={Colors.dark.background} />
+                    <FolderPlus size={18} color={colors.background} />
                     <Text style={styles.createNewButtonText}>Nueva Rutina</Text>
                   </Pressable>
                 </View>
@@ -273,10 +276,11 @@ export default function ExerciseDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: typeof Colors.dark) {
+  return StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.dark.background,
+    backgroundColor: colors.background,
   },
   scrollContainer: {
     paddingBottom: 40,
@@ -288,19 +292,19 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   errorText: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 18,
     fontWeight: '600',
     marginBottom: 20,
   },
   backButton: {
-    backgroundColor: Colors.dark.primary,
+    backgroundColor: colors.primary,
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 8,
   },
   backButtonText: {
-    color: Colors.dark.background,
+    color: colors.background,
     fontWeight: '700',
   },
   gifContainer: {
@@ -319,7 +323,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   exerciseName: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 26,
     fontWeight: '800',
     textTransform: 'capitalize',
@@ -328,14 +332,14 @@ const styles = StyleSheet.create({
   addToRoutineButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.dark.primary,
+    backgroundColor: colors.primary,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 10,
     gap: 6,
   },
   addToRoutineButtonText: {
-    color: Colors.dark.background,
+    color: colors.background,
     fontSize: 13,
     fontWeight: '700',
   },
@@ -348,14 +352,14 @@ const styles = StyleSheet.create({
   metadataCard: {
     flex: 1,
     minWidth: '45%',
-    backgroundColor: Colors.dark.card,
+    backgroundColor: colors.card,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     padding: 12,
   },
   metadataLabel: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -363,7 +367,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   metadataValue: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 14,
     fontWeight: '600',
     textTransform: 'capitalize',
@@ -372,7 +376,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   sectionTitle: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 13,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -387,13 +391,13 @@ const styles = StyleSheet.create({
   secondaryTag: {
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 6,
   },
   secondaryTagText: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 13,
     textTransform: 'capitalize',
   },
@@ -409,7 +413,7 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   stepText: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 15,
     lineHeight: 22,
     flex: 1,
@@ -420,11 +424,11 @@ const styles = StyleSheet.create({
     marginTop: 20,
     paddingTop: 20,
     borderTopWidth: 1,
-    borderTopColor: Colors.dark.cardBorder,
+    borderTopColor: colors.cardBorder,
     gap: 6,
   },
   attributionText: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 11,
     flex: 1,
   },
@@ -434,7 +438,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalContainer: {
-    backgroundColor: Colors.dark.card,
+    backgroundColor: colors.card,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     maxHeight: '70%',
@@ -447,10 +451,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.dark.cardBorder,
+    borderBottomColor: colors.cardBorder,
   },
   modalTitle: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 17,
     fontWeight: '700',
   },
@@ -462,7 +466,7 @@ const styles = StyleSheet.create({
     maxHeight: 400,
   },
   label: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 13,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -470,12 +474,12 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   textInput: {
-    backgroundColor: Colors.dark.background,
-    borderColor: Colors.dark.cardBorder,
+    backgroundColor: colors.background,
+    borderColor: colors.cardBorder,
     borderWidth: 1,
     borderRadius: 8,
     padding: 12,
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 16,
     marginBottom: 12,
   },
@@ -483,14 +487,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.dark.primary,
+    backgroundColor: colors.primary,
     borderRadius: 8,
     height: 48,
     gap: 8,
     marginBottom: 8,
   },
   saveButtonText: {
-    color: Colors.dark.background,
+    color: colors.background,
     fontWeight: '700',
     fontSize: 15,
   },
@@ -499,12 +503,12 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   cancelButtonText: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 14,
     fontWeight: '600',
   },
   emptyRoutinesText: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 14,
     textAlign: 'center',
     lineHeight: 20,
@@ -514,14 +518,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.dark.primary,
+    backgroundColor: colors.primary,
     borderRadius: 8,
     height: 48,
     gap: 8,
     marginTop: 8,
   },
   createNewButtonText: {
-    color: Colors.dark.background,
+    color: colors.background,
     fontWeight: '700',
     fontSize: 15,
   },
@@ -535,10 +539,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 14,
     paddingHorizontal: 16,
-    backgroundColor: Colors.dark.background,
+    backgroundColor: colors.background,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     marginBottom: 8,
   },
   routineItemDisabled: {
@@ -549,13 +553,14 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   routineItemName: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 15,
     fontWeight: '600',
     marginBottom: 2,
   },
   routineItemCount: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 12,
   },
 });
+}

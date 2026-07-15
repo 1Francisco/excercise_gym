@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { StyleSheet, View, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
-import Colors from '../constants/Colors';
 import { Dumbbell } from 'lucide-react-native';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface ExerciseVisualizerProps {
   path: string; // The path from the JSON (e.g. 'images/0001-2gPfomN.jpg' or 'videos/0001-2gPfomN.gif')
@@ -13,6 +13,7 @@ interface ExerciseVisualizerProps {
 const BASE_MEDIA_URL = 'https://raw.githubusercontent.com/ievenight/exercises-dataset/master';
 
 export default function ExerciseVisualizer({ path, type, style }: ExerciseVisualizerProps) {
+  const { colors } = useTheme();
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
 
@@ -23,13 +24,13 @@ export default function ExerciseVisualizer({ path, type, style }: ExerciseVisual
     <View style={[styles.container, style]}>
       {isLoading && (
         <View style={styles.loaderContainer}>
-          <ActivityIndicator size="small" color={Colors.dark.primary} />
+          <ActivityIndicator size="small" color={colors.primary} />
         </View>
       )}
 
       {hasError ? (
         <View style={styles.errorContainer}>
-          <Dumbbell size={40} color={Colors.dark.textMuted} />
+          <Dumbbell size={40} color={colors.textMuted} />
         </View>
       ) : (
         <Image

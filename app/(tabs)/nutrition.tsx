@@ -14,9 +14,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Colors from '../../src/constants/Colors';
+import { useTheme } from '../../src/contexts/ThemeContext';
 import { storage } from '../../src/services/storage';
 import * as ImagePicker from 'expo-image-picker';
-import { searchLocalDB, searchOpenFoodFacts, ProductSchema } from '../../src/services/foodApi';
+import { searchLocalDB, searchOpenFoodFacts, searchByBarcode, ProductSchema } from '../../src/services/foodApi';
+import { MealEntry, WeightEntry } from '../../src/types/nutrition';
+import { analyzeFoodWithAI, getGeminiApiKey, saveGeminiApiKey } from '../../src/services/gemini';
+import BarcodeScanner from '../../src/components/BarcodeScanner';
 import {
   Calculator,
   User,
@@ -36,6 +40,10 @@ import {
   Image as ImageIcon,
   Scan,
   Sparkles,
+  Trash2,
+  Droplets,
+  Settings,
+  Lightbulb,
 } from 'lucide-react-native';
 
 type Gender = 'masculino' | 'femenino';
@@ -142,7 +150,17 @@ export default function NutritionScreen() {
     priceInfo?: string;
   } | null>(null);
 
+  const [workoutCalories, setWorkoutCalories] = useState(0);
+  const [hasGeminiKey, setHasGeminiKey] = useState(false);
+
+  const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
+  const [selectedMealType, setSelectedMealType] = useState<'breakfast' | 'lunch' | 'dinner' | 'snack'>('snack');
+  const [todayMeals, setTodayMeals] = useState<MealEntry[]>([]);
+  const [waterGlasses, setWaterGlasses] = useState(0);
+  const [weightHistory, setWeightHistory] = useState<WeightEntry[]>([]);
   const scrollViewRef = useRef<ScrollView>(null);
+  const { colors } = useTheme();
+  const styles = React.useMemo(() => createStyles(colors), [colors]);
 
   // Get current date string (YYYY-MM-DD)
   const todayStr = useMemo(() => {
@@ -169,6 +187,21 @@ export default function NutritionScreen() {
     return list;
   }, [todayStr]);
 
+  const loadTodayMeals = async () => {
+    const meals = await storage.getMealsByDate(todayStr);
+    setTodayMeals(meals);
+  };
+
+  const loadWaterLog = async () => {
+    const log = await storage.getWaterLog(todayStr);
+    setWaterGlasses(log?.glasses ?? 0);
+  };
+
+  const loadWeightHistory = async () => {
+    const history = await storage.getWeightHistory();
+    setWeightHistory(history.sort((a, b) => a.date.localeCompare(b.date)));
+  };
+
   // Load saved goal and logs on mount
   const loadData = async () => {
     const goalData = await storage.getCalorieGoal();
@@ -176,7 +209,16 @@ export default function NutritionScreen() {
     
     setSavedGoal(goalData);
     setDailyLogs(logsData);
+    await loadTodayMeals();
+    await loadWaterLog();
+    await loadWeightHistory();
     
+    const wc = await storage.getTodayWorkoutCalories();
+    setWorkoutCalories(wc);
+
+    const key = await getGeminiApiKey();
+    setHasGeminiKey(!!key);
+
     // If a goal is already saved, collapse the calculator by default
     if (goalData && goalData.calories > 0) {
       setIsCalculatorExpanded(false);
@@ -362,10 +404,11 @@ export default function NutritionScreen() {
       todayLog.fatConsumed
     );
     if (success) {
+      await storage.saveWeightEntry({ date: todayStr, weight: val });
+      await loadWeightHistory();
       const updatedLogs = await storage.getDailyLogs();
       setDailyLogs(updatedLogs);
       setWeightInputValue('');
-      Alert.alert('Éxito', `Peso registrado: ${val} kg`);
     }
   };
 
@@ -504,6 +547,36 @@ export default function NutritionScreen() {
     });
   };
 
+  const handleBarcodeScanned = async (barcode: string) => {
+    setShowBarcodeScanner(false);
+    setIsAnalyzing(true);
+    setAnalyzingStep('Buscando producto por código de barras...');
+
+    const result = await searchByBarcode(barcode);
+    if (result) {
+      setIsAnalyzing(false);
+      setAnalyzerResults({
+        name: result.name,
+        calories: result.calories,
+        protein: result.protein,
+        carbs: result.carbs,
+        fat: result.fat,
+        calcio: '',
+        hierro: '',
+        sodio: '',
+        potasio: '',
+        vitaminaC: '',
+        vitaminaA: '',
+        portion: '100g de porción',
+        priceInfo: undefined,
+      });
+    } else {
+      setIsAnalyzing(false);
+      setFoodTextInput(`Código: ${barcode}`);
+      Alert.alert('No encontrado', 'No se encontró el producto. Ingresa los datos manualmente.');
+    }
+  };
+
   const handleSelectSuggestion = (suggestion: ProductSchema) => {
     setFoodTextInput(suggestion.name);
   };
@@ -518,9 +591,23 @@ export default function NutritionScreen() {
       analyzerResults.carbs,
       analyzerResults.fat
     );
+
+    const meal: MealEntry = {
+      id: Date.now().toString(),
+      name: analyzerResults.name,
+      mealType: selectedMealType,
+      calories: analyzerResults.calories,
+      protein: analyzerResults.protein,
+      carbs: analyzerResults.carbs,
+      fat: analyzerResults.fat,
+      timestamp: new Date().toISOString(),
+    };
+    await storage.saveMealEntry(todayStr, meal);
+    await loadTodayMeals();
+
     Alert.alert(
       'Añadido', 
-      `Se han sumado +${analyzerResults.calories} kcal y sus macronutrientes de "${analyzerResults.name}" a tu consumo diario.`
+      `Se han sumado +${analyzerResults.calories} kcal de "${analyzerResults.name}" a tu consumo diario.`
     );
     
     handleClearAnalyzer();
@@ -530,6 +617,74 @@ export default function NutritionScreen() {
     setFoodTextInput('');
     setSelectedImageUri(null);
     setAnalyzerResults(null);
+  };
+
+  const handleAnalyzeWithAI = async () => {
+    if (!foodTextInput.trim() && !selectedImageUri) {
+      Alert.alert('Error', 'Describe la comida o toma una foto primero.');
+      return;
+    }
+
+    setIsAnalyzing(true);
+    setAnalyzingStep('Analizando con Gemini AI...');
+
+    let base64Image: string | null = null;
+    if (selectedImageUri) {
+      const response = await fetch(selectedImageUri);
+      const blob = await response.blob();
+      const reader = new FileReader();
+      base64Image = await new Promise((resolve) => {
+        reader.onload = () => resolve((reader.result as string).split(',')[1]);
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    const result = await analyzeFoodWithAI(base64Image, foodTextInput);
+
+    if (result) {
+      setAnalyzerResults({
+        name: result.name,
+        calories: result.calories,
+        protein: result.protein,
+        carbs: result.carbs,
+        fat: result.fat,
+        calcio: '',
+        hierro: '',
+        sodio: '',
+        potasio: '',
+        vitaminaC: '',
+        vitaminaA: '',
+        portion: 'Porción estimada por IA',
+      });
+    } else {
+      Alert.alert('Error', 'No se pudo analizar con IA. Verifica tu API key o intenta de nuevo.');
+    }
+
+    setIsAnalyzing(false);
+  };
+
+  const handleConfigureGemini = () => {
+    Alert.prompt
+      ? Alert.prompt('Gemini API Key', 'Ingresa tu API key de Google Gemini:', [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: 'Guardar',
+            onPress: async (text?: string) => {
+              if (text && text.trim()) {
+                await saveGeminiApiKey(text.trim());
+                setHasGeminiKey(true);
+                Alert.alert('Éxito', 'API key guardada correctamente.');
+              }
+            },
+          },
+        ], 'plain-text')
+      : (() => {
+          Alert.alert(
+            'Gemini API Key',
+            'Ingresa tu API key de Google Gemini en el campo de texto.',
+            [{ text: 'OK' }]
+          );
+        })();
   };
 
   // Calculate current today progress details
@@ -566,11 +721,11 @@ export default function NutritionScreen() {
             <View style={styles.dashboardCard}>
               <View style={styles.dashboardHeader}>
                 <View style={styles.headerTitleRow}>
-                  <Flame size={20} color={Colors.dark.primary} />
+                  <Flame size={20} color={colors.primary} />
                   <Text style={styles.dashboardTitle}>Tu Progreso Diario</Text>
                 </View>
                 <Pressable onPress={handleResetGoal} style={styles.recalcLink}>
-                  <RefreshCw size={14} color={Colors.dark.textMuted} />
+                  <RefreshCw size={14} color={colors.textMuted} />
                   <Text style={styles.recalcLinkText}>Cambiar Meta</Text>
                 </Pressable>
               </View>
@@ -596,7 +751,7 @@ export default function NutritionScreen() {
                       styles.mainProgressFill,
                       {
                         width: `${Math.min(100, (todayCalories / savedGoal.calories) * 100)}%`,
-                        backgroundColor: todayCalories > savedGoal.calories ? Colors.dark.accent : Colors.dark.primary,
+                        backgroundColor: todayCalories > savedGoal.calories ? colors.accent : colors.primary,
                       },
                     ]}
                   />
@@ -616,6 +771,19 @@ export default function NutritionScreen() {
                     </Text>
                   )}
                 </View>
+
+                {/* Workout Calories */}
+                {workoutCalories > 0 && (
+                  <View style={styles.workoutCalRow}>
+                    <Flame size={14} color="#f97316" />
+                    <Text style={styles.workoutCalText}>-{workoutCalories} kcal de ejercicio</Text>
+                  </View>
+                )}
+                {savedGoal && workoutCalories > 0 && (
+                  <Text style={styles.netCalText}>
+                    Neto: {Math.max(0, todayCalories - workoutCalories)} / {savedGoal.calories}
+                  </Text>
+                )}
               </View>
 
               {/* Log Calories Input Area */}
@@ -631,7 +799,7 @@ export default function NutritionScreen() {
                   <Text style={styles.quickAddButtonText}>+500 kcal</Text>
                 </Pressable>
                 <Pressable onPress={() => handleModifyCalories(-100)} style={[styles.quickAddButton, styles.quickSubButton]}>
-                  <Minus size={14} color={Colors.dark.accent} />
+                  <Minus size={14} color={colors.accent} />
                   <Text style={styles.quickSubButtonText}>100</Text>
                 </Pressable>
               </View>
@@ -644,12 +812,12 @@ export default function NutritionScreen() {
                       style={styles.textInput}
                       keyboardType="numeric"
                       placeholder="Añadir kcal..."
-                      placeholderTextColor={Colors.dark.textMuted}
+                      placeholderTextColor={colors.textMuted}
                       value={calorieInputValue}
                       onChangeText={setCalorieInputValue}
                     />
                     <Pressable onPress={handleCustomCalorieSubmit} style={styles.inlineLogButton}>
-                      <Plus size={16} color={Colors.dark.background} />
+                      <Plus size={16} color={colors.background} />
                     </Pressable>
                   </View>
                 </View>
@@ -660,12 +828,12 @@ export default function NutritionScreen() {
                       style={styles.textInput}
                       keyboardType="numeric"
                       placeholder={latestWeight ? `${latestWeight} kg` : "Ej. 72.5"}
-                      placeholderTextColor={Colors.dark.textMuted}
+                      placeholderTextColor={colors.textMuted}
                       value={weightInputValue}
                       onChangeText={setWeightInputValue}
                     />
                     <Pressable onPress={handleWeightSubmit} style={[styles.inlineLogButton, { backgroundColor: '#3b82f6' }]}>
-                      <Scale size={16} color={Colors.dark.text} />
+                      <Scale size={16} color={colors.text} />
                     </Pressable>
                   </View>
                 </View>
@@ -679,11 +847,11 @@ export default function NutritionScreen() {
                   const percentOfGoal = Math.min(1.2, log.caloriesConsumed / savedGoal.calories);
                   
                   // Color code depending on performance (grey if 0, red if >110% of goal, green if within range)
-                  let barColor = Colors.dark.primary;
+                  let barColor = colors.primary;
                   if (log.caloriesConsumed === 0) {
-                    barColor = Colors.dark.cardBorder;
+                    barColor = colors.cardBorder;
                   } else if (log.caloriesConsumed > savedGoal.calories * 1.1) {
-                    barColor = Colors.dark.accent;
+                    barColor = colors.accent;
                   }
 
                   const isToday = date === todayStr;
@@ -800,6 +968,132 @@ export default function NutritionScreen() {
                 </View>
 
               </View>
+
+              {/* Goal-based recommendation */}
+              {savedGoal.goalType && (
+                <View style={[styles.goalRecommendationCard, 
+                  savedGoal.goalType === 'perder' && { borderColor: '#ef4444' },
+                  savedGoal.goalType === 'mantener' && { borderColor: '#3b82f6' },
+                  savedGoal.goalType === 'ganar' && { borderColor: '#22c55e' },
+                ]}>
+                  <Lightbulb size={18} color="#a855f7" />
+                  <Text style={styles.goalRecommendationText}>
+                    {savedGoal.goalType === 'perder' && 'Estás en déficit calórico. Prioriza proteínas para preservar músculo. Intenta consumir más verduras y fibra.'}
+                    {savedGoal.goalType === 'mantener' && 'Estás en mantenimiento. Mantén un equilibrio de macros y varía tus fuentes de alimentos.'}
+                    {savedGoal.goalType === 'ganar' && 'Estás en superávit calórico. Aumenta el consumo de carbohidratos complejos y proteínas de calidad.'}
+                  </Text>
+                </View>
+              )}
+
+              {/* Water Tracker */}
+              <View style={styles.waterSection}>
+                <View style={styles.waterHeader}>
+                  <Droplets size={18} color="#3b82f6" />
+                  <Text style={styles.waterTitle}>Agua</Text>
+                  <Text style={styles.waterCount}>{waterGlasses} / 8 vasos</Text>
+                </View>
+                <View style={styles.waterControls}>
+                  <Pressable
+                    onPress={async () => {
+                      if (waterGlasses > 0) {
+                        const next = waterGlasses - 1;
+                        setWaterGlasses(next);
+                        await storage.saveWaterLog({ date: todayStr, glasses: next, target: 8 });
+                      }
+                    }}
+                    style={[styles.waterBtn, waterGlasses === 0 && { opacity: 0.4 }]}
+                    disabled={waterGlasses === 0}
+                  >
+                    <Minus size={18} color={colors.text} />
+                  </Pressable>
+                  <View style={styles.waterBarBg}>
+                    <View style={[styles.waterBarFill, { width: `${Math.min(100, (waterGlasses / 8) * 100)}%` }]} />
+                  </View>
+                  <Pressable
+                    onPress={async () => {
+                      if (waterGlasses < 20) {
+                        const next = waterGlasses + 1;
+                        setWaterGlasses(next);
+                        await storage.saveWaterLog({ date: todayStr, glasses: next, target: 8 });
+                      }
+                    }}
+                    style={styles.waterBtn}
+                  >
+                    <Plus size={18} color={colors.text} />
+                  </Pressable>
+                </View>
+              </View>
+
+              {/* Weight History Chart */}
+              {weightHistory.length >= 2 && (
+                <View style={styles.weightChartSection}>
+                  <View style={styles.waterHeader}>
+                    <Scale size={18} color="#3b82f6" />
+                    <Text style={styles.waterTitle}>Evolución de Peso</Text>
+                  </View>
+                  <View style={styles.weightChartContainer}>
+                    {(() => {
+                      const recent = weightHistory.slice(-14);
+                      const maxW = Math.max(...recent.map((w) => w.weight));
+                      const minW = Math.min(...recent.map((w) => w.weight));
+                      const range = maxW - minW || 1;
+                      return (
+                        <View style={styles.weightBarsRow}>
+                          {recent.map((entry, i) => {
+                            const barH = ((entry.weight - minW) / range) * 80 + 20;
+                            return (
+                              <View key={i} style={styles.weightBarCol}>
+                                <View style={[styles.weightBar, { height: barH }]} />
+                                <Text style={styles.weightBarLabel}>{entry.weight}</Text>
+                                <Text style={styles.weightBarDate}>
+                                  {new Date(entry.date + 'T12:00:00').getDate()}
+                                </Text>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      );
+                    })()}
+                  </View>
+                </View>
+              )}
+
+              {/* Today's Meals Section */}
+              {todayMeals.length > 0 && (
+                <View style={styles.todayMealsSection}>
+                  <Text style={styles.label}>Comidas de Hoy</Text>
+                  {(['breakfast', 'lunch', 'dinner', 'snack'] as const).map((type) => {
+                    const labels = { breakfast: 'Desayuno', lunch: 'Comida', dinner: 'Cena', snack: 'Snack' };
+                    const meals = todayMeals.filter((m) => m.mealType === type);
+                    if (meals.length === 0) return null;
+                    return (
+                      <View key={type} style={styles.mealGroup}>
+                        <Text style={styles.mealGroupTitle}>{labels[type]}</Text>
+                        {meals.map((meal) => (
+                          <View key={meal.id} style={styles.mealEntry}>
+                            <View style={styles.mealEntryInfo}>
+                              <Text style={styles.mealEntryName} numberOfLines={1}>{meal.name}</Text>
+                              <Text style={styles.mealEntryMacros}>
+                                {meal.calories} kcal · P:{meal.protein}g · C:{meal.carbs}g · G:{meal.fat}g
+                              </Text>
+                            </View>
+                            <Pressable
+                              onPress={async () => {
+                                await storage.deleteMealEntry(todayStr, meal.id);
+                                await handleModifyCalories(-meal.calories, -meal.protein, -meal.carbs, -meal.fat);
+                                await loadTodayMeals();
+                              }}
+                              style={styles.mealDeleteBtn}
+                            >
+                              <Trash2 size={14} color={colors.accent} />
+                            </Pressable>
+                          </View>
+                        ))}
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
             </View>
           )}
 
@@ -836,7 +1130,7 @@ export default function NutritionScreen() {
                 <TextInput
                   style={[styles.foodInput, { height: 44 }]}
                   placeholder="¿Qué comiste? (Ej. Osobuco de cerdo, chorizo, etc.)"
-                  placeholderTextColor={Colors.dark.textMuted}
+                  placeholderTextColor={colors.textMuted}
                   value={foodTextInput}
                   onChangeText={setFoodTextInput}
                 />
@@ -869,7 +1163,7 @@ export default function NutritionScreen() {
                   value={foodTextInput}
                   onChangeText={setFoodTextInput}
                   placeholder="Edita el nombre detectado..."
-                  placeholderTextColor={Colors.dark.textMuted}
+                  placeholderTextColor={colors.textMuted}
                 />
               </View>
             )}
@@ -879,12 +1173,16 @@ export default function NutritionScreen() {
               {!selectedImageUri && (
                 <>
                   <Pressable onPress={takePhoto} style={styles.mediaButton}>
-                    <Camera size={18} color={Colors.dark.primary} />
+                    <Camera size={18} color={colors.primary} />
                     <Text style={styles.mediaButtonText}>Cámara</Text>
                   </Pressable>
                   <Pressable onPress={pickImage} style={styles.mediaButton}>
-                    <ImageIcon size={18} color={Colors.dark.primary} />
+                    <ImageIcon size={18} color={colors.primary} />
                     <Text style={styles.mediaButtonText}>Galería</Text>
+                  </Pressable>
+                  <Pressable onPress={() => setShowBarcodeScanner(true)} style={styles.mediaButton}>
+                    <Scan size={18} color={colors.primary} />
+                    <Text style={styles.mediaButtonText}>Escanear</Text>
                   </Pressable>
                 </>
               )}
@@ -897,11 +1195,41 @@ export default function NutritionScreen() {
                 ]}
                 disabled={isAnalyzing}
               >
-                <Scan size={18} color={Colors.dark.background} />
+                <Scan size={18} color={colors.background} />
                 <Text style={styles.analyzeTriggerText}>
                   {isAnalyzing ? 'Analizando...' : 'Analizar'}
                 </Text>
               </Pressable>
+            </View>
+
+            {/* AI Analysis Button */}
+            <View style={styles.aiRow}>
+              {hasGeminiKey ? (
+                <Pressable
+                  onPress={handleAnalyzeWithAI}
+                  style={[
+                    styles.aiButton,
+                    (isAnalyzing || (!foodTextInput.trim() && !selectedImageUri)) && styles.aiButtonDisabled,
+                  ]}
+                  disabled={isAnalyzing}
+                >
+                  <Sparkles size={16} color={colors.background} />
+                  <Text style={styles.aiButtonText}>Analizar con IA (Gemini)</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  onPress={handleConfigureGemini}
+                  style={styles.aiButton}
+                >
+                  <Settings size={16} color="#a855f7" />
+                  <Text style={[styles.aiButtonText, { color: '#a855f7' }]}>Configurar Gemini</Text>
+                </Pressable>
+              )}
+              {hasGeminiKey && (
+                <Pressable onPress={handleConfigureGemini} style={styles.aiSettingsBtn}>
+                  <Settings size={18} color={colors.textMuted} />
+                </Pressable>
+              )}
             </View>
 
             {/* Scanning steps text if active */}
@@ -923,7 +1251,7 @@ export default function NutritionScreen() {
                 {/* Micro calorie & price badge */}
                 <View style={styles.resultDetailsHeader}>
                   <View style={styles.resultCaloriesRow}>
-                    <Flame size={18} color={Colors.dark.primary} />
+                    <Flame size={18} color={colors.primary} />
                     <TextInput
                       style={styles.resultCaloriesInput}
                       keyboardType="numeric"
@@ -1010,13 +1338,32 @@ export default function NutritionScreen() {
                   </View>
                 </View>
 
+                {/* Meal Type Selector */}
+                <Text style={styles.label}>Añadir a</Text>
+                <View style={styles.mealTypeRow}>
+                  {(['breakfast', 'lunch', 'dinner', 'snack'] as const).map((type) => {
+                    const labels = { breakfast: 'Desayuno', lunch: 'Comida', dinner: 'Cena', snack: 'Snack' };
+                    return (
+                      <Pressable
+                        key={type}
+                        onPress={() => setSelectedMealType(type)}
+                        style={[styles.mealTypeBtn, selectedMealType === type && styles.mealTypeBtnActive]}
+                      >
+                        <Text style={[styles.mealTypeBtnText, selectedMealType === type && styles.mealTypeBtnTextActive]}>
+                          {labels[type]}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
                 {/* Log button */}
                 <View style={styles.resultActionRow}>
                   <Pressable onPress={handleClearAnalyzer} style={styles.cancelResultBtn}>
                     <Text style={styles.cancelResultBtnText}>Cerrar</Text>
                   </Pressable>
                   <Pressable onPress={handleAddAnalyzedCalories} style={styles.logResultBtn}>
-                    <Plus size={16} color={Colors.dark.background} />
+                    <Plus size={16} color={colors.background} />
                     <Text style={styles.logResultBtnText}>Añadir a mi Consumo</Text>
                   </Pressable>
                 </View>
@@ -1031,13 +1378,13 @@ export default function NutritionScreen() {
               style={styles.collapseHeader}
             >
               <View style={styles.collapseHeaderLeft}>
-                <Calculator size={18} color={Colors.dark.primary} />
+                <Calculator size={18} color={colors.primary} />
                 <Text style={styles.collapseHeaderText}>Recalcular Meta Nutricional</Text>
               </View>
               {isCalculatorExpanded ? (
-                <ChevronUp size={18} color={Colors.dark.textMuted} />
+                <ChevronUp size={18} color={colors.textMuted} />
               ) : (
-                <ChevronDown size={18} color={Colors.dark.textMuted} />
+                <ChevronDown size={18} color={colors.textMuted} />
               )}
             </Pressable>
           )}
@@ -1057,7 +1404,7 @@ export default function NutritionScreen() {
                     gender === 'masculino' && styles.genderButtonActive,
                   ]}
                 >
-                  <User size={18} color={gender === 'masculino' ? Colors.dark.background : Colors.dark.textMuted} />
+                  <User size={18} color={gender === 'masculino' ? colors.background : colors.textMuted} />
                   <Text
                     style={[
                       styles.genderButtonText,
@@ -1074,7 +1421,7 @@ export default function NutritionScreen() {
                     gender === 'femenino' && styles.genderButtonActive,
                   ]}
                 >
-                  <User size={18} color={gender === 'femenino' ? Colors.dark.background : Colors.dark.textMuted} />
+                  <User size={18} color={gender === 'femenino' ? colors.background : colors.textMuted} />
                   <Text
                     style={[
                       styles.genderButtonText,
@@ -1095,7 +1442,7 @@ export default function NutritionScreen() {
                       style={styles.textInput}
                       keyboardType="numeric"
                       placeholder="25"
-                      placeholderTextColor={Colors.dark.textMuted}
+                      placeholderTextColor={colors.textMuted}
                       value={age}
                       onChangeText={setAge}
                     />
@@ -1110,7 +1457,7 @@ export default function NutritionScreen() {
                       style={styles.textInput}
                       keyboardType="numeric"
                       placeholder="70"
-                      placeholderTextColor={Colors.dark.textMuted}
+                      placeholderTextColor={colors.textMuted}
                       value={weight}
                       onChangeText={setWeight}
                     />
@@ -1125,7 +1472,7 @@ export default function NutritionScreen() {
                       style={styles.textInput}
                       keyboardType="numeric"
                       placeholder="175"
-                      placeholderTextColor={Colors.dark.textMuted}
+                      placeholderTextColor={colors.textMuted}
                       value={height}
                       onChangeText={setHeight}
                     />
@@ -1253,7 +1600,7 @@ export default function NutritionScreen() {
               {/* Action Buttons */}
               <View style={styles.actionButtons}>
                 <Pressable onPress={handleCalculate} style={styles.calculateButton}>
-                  <Calculator size={18} color={Colors.dark.background} />
+                  <Calculator size={18} color={colors.background} />
                   <Text style={styles.calculateButtonText}>Calcular Calorías</Text>
                 </Pressable>
               </View>
@@ -1264,7 +1611,7 @@ export default function NutritionScreen() {
           {showResults && previewMacros && (
             <View style={styles.resultsCard}>
               <View style={styles.resultsHeader}>
-                <Flame size={24} color={Colors.dark.primary} />
+                <Flame size={24} color={colors.primary} />
                 <Text style={styles.resultsTitle}>Resultado Calculado</Text>
               </View>
 
@@ -1315,42 +1662,49 @@ export default function NutritionScreen() {
 
               {/* Set as Active Goal button */}
               <Pressable onPress={handleSetAsGoal} style={styles.saveGoalButton}>
-                <Award size={18} color={Colors.dark.background} />
+                <Award size={18} color={colors.background} />
                 <Text style={styles.saveGoalButtonText}>Establecer como Meta Activa</Text>
               </Pressable>
             </View>
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <BarcodeScanner
+        visible={showBarcodeScanner}
+        onScan={handleBarcodeScanned}
+        onClose={() => setShowBarcodeScanner(false)}
+      />
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: typeof Colors.dark) {
+  return StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.dark.background,
+    backgroundColor: colors.background,
   },
   scrollContainer: {
     padding: 16,
     paddingBottom: 40,
   },
   card: {
-    backgroundColor: Colors.dark.card,
+    backgroundColor: colors.card,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     padding: 16,
     marginBottom: 16,
   },
   cardTitle: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 18,
     fontWeight: '700',
     marginBottom: 16,
   },
   label: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 12,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -1371,21 +1725,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.02)',
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     height: 44,
     gap: 6,
   },
   genderButtonActive: {
-    backgroundColor: Colors.dark.primary,
-    borderColor: Colors.dark.primary,
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   genderButtonText: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 14,
     fontWeight: '600',
   },
   genderButtonTextActive: {
-    color: Colors.dark.background,
+    color: colors.background,
     fontWeight: '700',
   },
   inputsRow: {
@@ -1402,18 +1756,18 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.02)',
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     paddingHorizontal: 12,
     height: 44,
   },
   textInput: {
     flex: 1,
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 16,
     fontWeight: '600',
   },
   unitText: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 12,
     marginLeft: 4,
   },
@@ -1427,26 +1781,26 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.02)',
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     padding: 10,
     alignItems: 'center',
   },
   goalCardActive: {
-    borderColor: Colors.dark.primary,
+    borderColor: colors.primary,
     backgroundColor: 'rgba(16, 185, 129, 0.05)',
   },
   goalTitle: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 13,
     fontWeight: '700',
     marginBottom: 2,
     textAlign: 'center',
   },
   goalTextActive: {
-    color: Colors.dark.primary,
+    color: colors.primary,
   },
   goalDesc: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 10,
     textAlign: 'center',
   },
@@ -1458,11 +1812,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.02)',
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     padding: 12,
   },
   activityCardActive: {
-    borderColor: Colors.dark.primary,
+    borderColor: colors.primary,
     backgroundColor: 'rgba(16, 185, 129, 0.05)',
   },
   activityHeader: {
@@ -1471,15 +1825,15 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   activityLabel: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 14,
     fontWeight: '600',
   },
   activityLabelActive: {
-    color: Colors.dark.primary,
+    color: colors.primary,
   },
   activityFactor: {
-    color: Colors.dark.primary,
+    color: colors.primary,
     fontSize: 12,
     fontWeight: '700',
     backgroundColor: 'rgba(16, 185, 129, 0.1)',
@@ -1488,7 +1842,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   activityDesc: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 11,
     lineHeight: 15,
   },
@@ -1497,7 +1851,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.02)',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     padding: 3,
     marginBottom: 16,
   },
@@ -1508,15 +1862,15 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   splitTabActive: {
-    backgroundColor: Colors.dark.primary,
+    backgroundColor: colors.primary,
   },
   splitTabText: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 12,
     fontWeight: '600',
   },
   splitTabTextActive: {
-    color: Colors.dark.background,
+    color: colors.background,
     fontWeight: '700',
   },
   actionButtons: {
@@ -1526,21 +1880,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.dark.primary,
+    backgroundColor: colors.primary,
     borderRadius: 12,
     height: 48,
     gap: 8,
   },
   calculateButtonText: {
-    color: Colors.dark.background,
+    color: colors.background,
     fontSize: 16,
     fontWeight: '700',
   },
   resultsCard: {
-    backgroundColor: Colors.dark.card,
+    backgroundColor: colors.card,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     padding: 16,
     marginBottom: 16,
   },
@@ -1551,7 +1905,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   resultsTitle: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 18,
     fontWeight: '700',
   },
@@ -1565,13 +1919,13 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   caloriesNumber: {
-    color: Colors.dark.primary,
+    color: colors.primary,
     fontSize: 36,
     fontWeight: '800',
     letterSpacing: -1,
   },
   caloriesLabel: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 13,
     fontWeight: '600',
     marginTop: 2,
@@ -1592,7 +1946,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(234, 179, 8, 0.15)',
   },
   goalBadgeText: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 11,
     fontWeight: '700',
   },
@@ -1606,18 +1960,18 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.02)',
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     padding: 10,
   },
   statLabel: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 9,
     fontWeight: '700',
     textTransform: 'uppercase',
     marginBottom: 4,
   },
   statValue: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 14,
     fontWeight: '700',
   },
@@ -1625,7 +1979,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.01)',
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     padding: 12,
     gap: 8,
     marginBottom: 16,
@@ -1635,11 +1989,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   macroStatName: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 14,
   },
   macroStatVal: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 14,
     fontWeight: '700',
   },
@@ -1647,23 +2001,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.dark.primary,
+    backgroundColor: colors.primary,
     borderRadius: 12,
     height: 48,
     gap: 8,
   },
   saveGoalButtonText: {
-    color: Colors.dark.background,
+    color: colors.background,
     fontSize: 15,
     fontWeight: '700',
   },
   
   // DASHBOARD SPECIFIC STYLES
   dashboardCard: {
-    backgroundColor: Colors.dark.card,
+    backgroundColor: colors.card,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     padding: 16,
     marginBottom: 16,
   },
@@ -1679,7 +2033,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   dashboardTitle: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 18,
     fontWeight: '700',
   },
@@ -1692,10 +2046,10 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
   },
   recalcLinkText: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 11,
     fontWeight: '600',
   },
@@ -1704,7 +2058,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     backgroundColor: 'rgba(255,255,255,0.01)',
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     borderRadius: 12,
     padding: 16,
   },
@@ -1720,26 +2074,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   caloriesConsumedNumber: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 28,
     fontWeight: '800',
   },
   caloriesConsumedLabel: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 12,
   },
   dividerLine: {
     width: 1,
     height: 35,
-    backgroundColor: Colors.dark.cardBorder,
+    backgroundColor: colors.cardBorder,
   },
   caloriesTargetNumber: {
-    color: Colors.dark.primary,
+    color: colors.primary,
     fontSize: 28,
     fontWeight: '800',
   },
   caloriesTargetLabel: {
-    color: Colors.dark.primary,
+    color: colors.primary,
     fontSize: 12,
     opacity: 0.8,
   },
@@ -1761,7 +2115,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   caloriesRemainingText: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 12,
     fontWeight: '600',
   },
@@ -1786,7 +2140,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   quickAddButtonText: {
-    color: Colors.dark.primary,
+    color: colors.primary,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -1797,7 +2151,7 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   quickSubButtonText: {
-    color: Colors.dark.accent,
+    color: colors.accent,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -1810,7 +2164,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   inlineLogButton: {
-    backgroundColor: Colors.dark.primary,
+    backgroundColor: colors.primary,
     width: 28,
     height: 28,
     borderRadius: 6,
@@ -1823,7 +2177,7 @@ const styles = StyleSheet.create({
     height: 150,
     backgroundColor: 'rgba(255,255,255,0.01)',
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     borderRadius: 12,
     padding: 12,
     paddingTop: 24,
@@ -1849,17 +2203,17 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   chartDayLabel: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 10,
     fontWeight: '600',
     marginBottom: 2,
   },
   chartDayLabelToday: {
-    color: Colors.dark.primary,
+    color: colors.primary,
     fontWeight: '800',
   },
   chartCalLabel: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 8,
     marginBottom: 2,
   },
@@ -1872,9 +2226,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: Colors.dark.card,
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     borderRadius: 12,
     padding: 14,
     marginBottom: 16,
@@ -1885,17 +2239,17 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   collapseHeaderText: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 14,
     fontWeight: '600',
   },
   
   // ANALYZER STYLES
   analyzerCard: {
-    backgroundColor: Colors.dark.card,
+    backgroundColor: colors.card,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     padding: 16,
     marginBottom: 16,
   },
@@ -1906,12 +2260,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   analyzerTitle: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 18,
     fontWeight: '700',
   },
   analyzerSub: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 13,
     lineHeight: 18,
     marginBottom: 14,
@@ -1920,13 +2274,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.02)',
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     paddingHorizontal: 12,
     paddingVertical: 8,
     marginBottom: 8,
   },
   foodInput: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 14,
     padding: 0,
   },
@@ -1934,7 +2288,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.02)',
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     padding: 4,
     marginBottom: 12,
   },
@@ -1948,7 +2302,7 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(255,255,255,0.03)',
   },
   suggestionText: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 13,
     flex: 1,
     marginRight: 8,
@@ -1971,7 +2325,7 @@ const styles = StyleSheet.create({
     position: 'relative',
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
   },
   photoPreview: {
     width: '100%',
@@ -2010,12 +2364,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.02)',
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     padding: 10,
     marginBottom: 12,
   },
   detectedFoodHintLabel: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 11,
     fontWeight: '600',
     marginBottom: 4,
@@ -2039,12 +2393,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.02)',
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     height: 44,
     gap: 6,
   },
   mediaButtonText: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 13,
     fontWeight: '600',
   },
@@ -2062,7 +2416,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(168, 85, 247, 0.3)',
   },
   analyzeTriggerText: {
-    color: Colors.dark.background,
+    color: colors.background,
     fontSize: 14,
     fontWeight: '700',
   },
@@ -2088,7 +2442,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.01)',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     padding: 12,
   },
   resultTitleRow: {
@@ -2098,14 +2452,14 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   resultTitle: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 16,
     fontWeight: '700',
     flex: 1,
     marginRight: 8,
   },
   resultPortion: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 11,
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
     paddingHorizontal: 6,
@@ -2141,17 +2495,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(255,255,255,0.02)',
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     borderLeftWidth: 3,
     borderRadius: 6,
     padding: 6,
   },
   resultMacroLabel: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 9,
   },
   resultMacroVal: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 13,
     fontWeight: '700',
     marginTop: 1,
@@ -2166,18 +2520,18 @@ const styles = StyleSheet.create({
     width: '31%',
     backgroundColor: 'rgba(255, 255, 255, 0.02)',
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     borderRadius: 6,
     padding: 6,
     alignItems: 'center',
   },
   microLabel: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 9,
     marginBottom: 2,
   },
   microVal: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 11,
     fontWeight: '600',
   },
@@ -2185,7 +2539,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     borderTopWidth: 1,
-    borderTopColor: Colors.dark.cardBorder,
+    borderTopColor: colors.cardBorder,
     paddingTop: 10,
   },
   cancelResultBtn: {
@@ -2195,10 +2549,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
   },
   cancelResultBtnText: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 13,
     fontWeight: '600',
   },
@@ -2208,17 +2562,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.dark.primary,
+    backgroundColor: colors.primary,
     borderRadius: 8,
     gap: 6,
   },
   logResultBtnText: {
-    color: Colors.dark.background,
+    color: colors.background,
     fontSize: 13,
     fontWeight: '700',
   },
   resultCaloriesInput: {
-    color: Colors.dark.primary,
+    color: colors.primary,
     fontSize: 18,
     fontWeight: '800',
     paddingHorizontal: 4,
@@ -2230,11 +2584,11 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
   },
   resultCaloriesUnit: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 13,
   },
   resultMacroInput: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 14,
     fontWeight: '700',
     paddingVertical: 2,
@@ -2252,7 +2606,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.02)',
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     padding: 10,
   },
   macroProgressHeader: {
@@ -2262,12 +2616,12 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   macroProgressName: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 13,
     fontWeight: '700',
   },
   macroProgressStats: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 12,
     fontWeight: '600',
   },
@@ -2283,9 +2637,253 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   macroProgressRemaining: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 10,
     fontWeight: '500',
   },
+  goalRecommendationCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: 'rgba(168, 85, 247, 0.06)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(168, 85, 247, 0.2)',
+    padding: 12,
+    marginTop: 12,
+  },
+  goalRecommendationText: {
+    color: colors.text,
+    fontSize: 13,
+    lineHeight: 19,
+    flex: 1,
+  },
+
+  // ─── Meal Type Selector ────────────────────────────────
+  mealTypeRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 12,
+  },
+  mealTypeBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.card,
+    alignItems: 'center',
+  },
+  mealTypeBtnActive: {
+    borderColor: colors.primary,
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+  },
+  mealTypeBtnText: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  mealTypeBtnTextActive: {
+    color: colors.primary,
+    fontWeight: '700',
+  },
+
+  // ─── Today's Meals ────────────────────────────────────
+  todayMealsSection: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.cardBorder,
+  },
+  mealGroup: {
+    marginBottom: 12,
+  },
+  mealGroupTitle: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  mealEntry: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
+  mealEntryInfo: {
+    flex: 1,
+    marginRight: 8,
+  },
+  mealEntryName: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 2,
+    textTransform: 'capitalize',
+  },
+  mealEntryMacros: {
+    color: colors.textMuted,
+    fontSize: 11,
+  },
+  mealDeleteBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(244, 63, 94, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  // ─── Water Tracker ──────────────────────────────────────
+  waterSection: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.cardBorder,
+  },
+  waterHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  waterTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '700',
+    flex: 1,
+  },
+  waterCount: {
+    color: '#3b82f6',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  waterControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  waterBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.cardBorder,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  waterBarBg: {
+    flex: 1,
+    height: 10,
+    backgroundColor: colors.cardBorder,
+    borderRadius: 5,
+    overflow: 'hidden',
+  },
+  waterBarFill: {
+    height: '100%',
+    backgroundColor: '#3b82f6',
+    borderRadius: 5,
+  },
+
+  // ─── Weight History Chart ───────────────────────────────
+  weightChartSection: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.cardBorder,
+  },
+  weightChartContainer: {
+    marginTop: 8,
+  },
+  weightBarsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    height: 120,
+  },
+  weightBarCol: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    marginHorizontal: 2,
+  },
+  weightBar: {
+    width: '60%',
+    backgroundColor: '#3b82f6',
+    borderRadius: 4,
+    opacity: 0.7,
+    minHeight: 4,
+  },
+  weightBarLabel: {
+    color: colors.text,
+    fontSize: 9,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  weightBarDate: {
+    color: colors.textMuted,
+    fontSize: 8,
+  },
+
+  // ─── Workout Calories ───────────────────────────────────
+  workoutCalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 6,
+  },
+  workoutCalText: {
+    color: '#f97316',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  netCalText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: 2,
+  },
+
+  // ─── AI Gemini Analysis ─────────────────────────────────
+  aiRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  aiButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#a855f7',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#a855f7',
+    height: 44,
+    gap: 6,
+  },
+  aiButtonDisabled: {
+    opacity: 0.4,
+  },
+  aiButtonText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  aiSettingsBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });
+}
 

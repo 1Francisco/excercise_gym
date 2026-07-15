@@ -46,6 +46,37 @@ export function searchLocalDB(query: string): ProductSchema | null {
   return bestMatch;
 }
 
+export async function searchByBarcode(barcode: string): Promise<{
+  name: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  image?: string;
+} | null> {
+  try {
+    const res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`, {
+      headers: { 'User-Agent': 'ExercisesGymApp/1.0 (Mexico)' },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.status !== 1 || !data.product) return null;
+
+    const p = data.product;
+    const n = p.nutriments || {};
+    return {
+      name: p.product_name || `Producto ${barcode}`,
+      calories: Math.round(n['energy-kcal_100g'] || 0),
+      protein: Math.round(n.proteins_100g || 0),
+      carbs: Math.round(n.carbohydrates_100g || 0),
+      fat: Math.round(n.fat_100g || 0),
+      image: p.image_url || undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function searchOpenFoodFacts(query: string): Promise<{
   name: string;
   calories: number;

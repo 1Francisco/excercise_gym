@@ -52,12 +52,47 @@ export interface Routine {
   id: string;
   name: string;
   exerciseIds: string[];
+  exercises?: RoutineExercise[];
   createdAt: string;
 }
 
 export interface WorkoutState {
   currentExerciseIndex: number;
   isResting: boolean;
-  timeRemaining: number; // in seconds
+  timeRemaining: number;
   completedExercises: string[];
 }
+
+export interface SetEntry {
+  setNumber: number;
+  reps: number;
+  weight: number;
+  completed: boolean;
+}
+
+export interface ExerciseProgress {
+  exerciseId: string;
+  sets: SetEntry[];
+  startTime: string;
+  endTime: string;
+}
+
+export interface WorkoutSession {
+  id: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  totalExercises: number;
+  totalSets: number;
+  exercises: ExerciseProgress[];
+  estimatedCaloriesBurned?: number;
+}
+
+export interface RoutineExercise {
+  exerciseId: string;
+  defaultSets: number;
+  defaultReps: number;
+  restTime: number;
+}
+
+export type ThemeMode = 'dark' | 'light';

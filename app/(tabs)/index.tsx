@@ -7,15 +7,28 @@ import {
   FlatList,
   ScrollView,
   Pressable,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Colors from '../../src/constants/Colors';
+import { useTheme } from '../../src/contexts/ThemeContext';
 import useExerciseFilter from '../../src/hooks/useExerciseFilter';
 import ExerciseCard from '../../src/components/ExerciseCard';
+import RoutineSuggestion from '../../src/components/RoutineSuggestion';
 import { Search, X, Dumbbell } from 'lucide-react-native';
 import { translateMuscle, translateEquipment } from '../../src/constants/Translations';
 
 export default function CatalogScreen() {
+  const { colors } = useTheme();
+  const styles = React.useMemo(() => createStyles(colors), [colors]);
+  const [refreshing, setRefreshing] = React.useState(false);
+
+  const onRefresh = React.useCallback(() => {
+    setRefreshing(true);
+    // Data is local JSON — simulate brief refresh for UX consistency
+    setTimeout(() => setRefreshing(false), 300);
+  }, []);
+
   const {
     searchQuery,
     setSearchQuery,
@@ -41,10 +54,10 @@ export default function CatalogScreen() {
       {/* Search Bar Container */}
       <View style={styles.searchSection}>
         <View style={styles.searchContainer}>
-          <Search size={18} color={Colors.dark.textMuted} style={styles.searchIcon} />
+          <Search size={18} color={colors.textMuted} style={styles.searchIcon} />
           <TextInput
             placeholder="Buscar ejercicio, músculo..."
-            placeholderTextColor={Colors.dark.textMuted}
+            placeholderTextColor={colors.textMuted}
             value={searchQuery}
             onChangeText={setSearchQuery}
             style={styles.searchInput}
@@ -52,7 +65,7 @@ export default function CatalogScreen() {
           />
           {searchQuery !== '' && (
             <Pressable onPress={() => setSearchQuery('')} style={styles.clearSearchIcon}>
-              <X size={16} color={Colors.dark.text} />
+              <X size={16} color={colors.text} />
             </Pressable>
           )}
         </View>
@@ -117,6 +130,8 @@ export default function CatalogScreen() {
         </View>
       </View>
 
+      <RoutineSuggestion />
+
       {/* Exercises List */}
       <View style={styles.listHeader}>
         <Text style={styles.resultsText}>
@@ -135,12 +150,13 @@ export default function CatalogScreen() {
         renderItem={({ item }) => <ExerciseCard exercise={item} />}
         contentContainerStyle={styles.listContainer}
         showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
         initialNumToRender={15}
         maxToRenderPerBatch={20}
         windowSize={10}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Dumbbell size={48} color={Colors.dark.textMuted} style={styles.emptyIcon} />
+            <Dumbbell size={48} color={colors.textMuted} style={styles.emptyIcon} />
             <Text style={styles.emptyTitle}>Sin resultados</Text>
             <Text style={styles.emptySubtitle}>
               Prueba a cambiar tus filtros de búsqueda o limpia los filtros.
@@ -157,10 +173,11 @@ export default function CatalogScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: typeof Colors.dark) {
+  return StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.dark.background,
+    backgroundColor: colors.background,
   },
   searchSection: {
     paddingHorizontal: 16,
@@ -170,10 +187,10 @@ const styles = StyleSheet.create({
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.dark.card,
+    backgroundColor: colors.card,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
     paddingHorizontal: 12,
     height: 48,
   },
@@ -182,7 +199,7 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 16,
   },
   clearSearchIcon: {
@@ -195,7 +212,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   filterTitle: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 12,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -209,25 +226,25 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   chip: {
-    backgroundColor: Colors.dark.card,
+    backgroundColor: colors.card,
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
+    borderColor: colors.cardBorder,
   },
   chipActive: {
-    backgroundColor: Colors.dark.primary,
-    borderColor: Colors.dark.primary,
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   chipText: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 13,
     fontWeight: '600',
     textTransform: 'capitalize',
   },
   chipTextActive: {
-    color: Colors.dark.background,
+    color: colors.background,
     fontWeight: '700',
   },
   listHeader: {
@@ -237,15 +254,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: Colors.dark.cardBorder,
+    borderTopColor: colors.cardBorder,
   },
   resultsText: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 13,
     fontWeight: '600',
   },
   resetText: {
-    color: Colors.dark.accent,
+    color: colors.accent,
     fontSize: 13,
     fontWeight: '700',
   },
@@ -264,13 +281,13 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   emptyTitle: {
-    color: Colors.dark.text,
+    color: colors.text,
     fontSize: 18,
     fontWeight: '700',
     marginBottom: 8,
   },
   emptySubtitle: {
-    color: Colors.dark.textMuted,
+    color: colors.textMuted,
     fontSize: 14,
     textAlign: 'center',
     lineHeight: 20,
@@ -278,15 +295,16 @@ const styles = StyleSheet.create({
   },
   emptyButton: {
     backgroundColor: 'rgba(16, 185, 129, 0.1)',
-    borderColor: Colors.dark.primary,
+    borderColor: colors.primary,
     borderWidth: 1,
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 8,
   },
   emptyButtonText: {
-    color: Colors.dark.primary,
+    color: colors.primary,
     fontWeight: '700',
     fontSize: 14,
   },
 });
+}
