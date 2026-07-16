@@ -95,4 +95,14 @@ export interface RoutineExercise {
   restTime: number;
 }
 
+export interface CustomExercise {
+  id: string;
+  name: string;
+  bodyPart: BodyPart;
+  equipment: string;
+  instructions: string;
+  imageUri?: string;
+  createdAt: string;
+}
+
 export type ThemeMode = 'dark' | 'light';

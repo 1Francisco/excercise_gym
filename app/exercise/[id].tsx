@@ -94,6 +94,7 @@ export default function ExerciseDetailScreen() {
         <ExerciseVisualizer
           path={exercise.gif_url}
           type="gif"
+          priority="high"
           style={styles.gifContainer}
         />
 

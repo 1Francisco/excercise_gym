@@ -1168,69 +1168,56 @@ export default function NutritionScreen() {
               </View>
             )}
 
-            {/* Action Triggers */}
-            <View style={styles.analyzerButtonsRow}>
-              {!selectedImageUri && (
-                <>
-                  <Pressable onPress={takePhoto} style={styles.mediaButton}>
-                    <Camera size={18} color={colors.primary} />
-                    <Text style={styles.mediaButtonText}>Cámara</Text>
-                  </Pressable>
-                  <Pressable onPress={pickImage} style={styles.mediaButton}>
-                    <ImageIcon size={18} color={colors.primary} />
-                    <Text style={styles.mediaButtonText}>Galería</Text>
-                  </Pressable>
-                  <Pressable onPress={() => setShowBarcodeScanner(true)} style={styles.mediaButton}>
-                    <Scan size={18} color={colors.primary} />
-                    <Text style={styles.mediaButtonText}>Escanear</Text>
-                  </Pressable>
-                </>
-              )}
-              
+            {/* Action Triggers - Media buttons row */}
+            {!selectedImageUri && (
+              <View style={styles.mediaRow}>
+                <Pressable onPress={takePhoto} style={styles.mediaButton}>
+                  <Camera size={16} color={colors.primary} />
+                  <Text style={styles.mediaButtonText}>Cámara</Text>
+                </Pressable>
+                <Pressable onPress={pickImage} style={styles.mediaButton}>
+                  <ImageIcon size={16} color={colors.primary} />
+                  <Text style={styles.mediaButtonText}>Galería</Text>
+                </Pressable>
+                <Pressable onPress={() => setShowBarcodeScanner(true)} style={styles.mediaButton}>
+                  <Scan size={16} color={colors.primary} />
+                  <Text style={styles.mediaButtonText}>Escanear</Text>
+                </Pressable>
+              </View>
+            )}
+
+            {/* Analyze button */}
+            <Pressable
+              onPress={analyzeFood}
+              style={[
+                styles.analyzeTrigger,
+                (isAnalyzing || (!foodTextInput.trim() && !selectedImageUri)) && styles.analyzeTriggerDisabled,
+              ]}
+              disabled={isAnalyzing}
+            >
+              <Scan size={16} color={colors.background} />
+              <Text style={styles.analyzeTriggerText}>
+                {isAnalyzing ? 'Analizando...' : 'Buscar Información Nutricional'}
+              </Text>
+            </Pressable>
+
+            {/* AI Analysis Button (solo si hay API key configurada) */}
+            {hasGeminiKey && (
               <Pressable
-                onPress={analyzeFood}
+                onPress={handleAnalyzeWithAI}
                 style={[
-                  styles.analyzeTrigger,
-                  (isAnalyzing || (!foodTextInput.trim() && !selectedImageUri)) && styles.analyzeTriggerDisabled,
+                  styles.aiButton,
+                  (isAnalyzing || (!foodTextInput.trim() && !selectedImageUri)) && styles.aiButtonDisabled,
                 ]}
                 disabled={isAnalyzing}
               >
-                <Scan size={18} color={colors.background} />
-                <Text style={styles.analyzeTriggerText}>
-                  {isAnalyzing ? 'Analizando...' : 'Analizar'}
-                </Text>
+                <Sparkles size={16} color={colors.background} />
+                <Text style={styles.aiButtonText}>Analizar con IA (Gemini)</Text>
+                <Pressable onPress={handleConfigureGemini} hitSlop={8} style={styles.aiSettingsInline}>
+                  <Settings size={16} color={colors.background} />
+                </Pressable>
               </Pressable>
-            </View>
-
-            {/* AI Analysis Button */}
-            <View style={styles.aiRow}>
-              {hasGeminiKey ? (
-                <Pressable
-                  onPress={handleAnalyzeWithAI}
-                  style={[
-                    styles.aiButton,
-                    (isAnalyzing || (!foodTextInput.trim() && !selectedImageUri)) && styles.aiButtonDisabled,
-                  ]}
-                  disabled={isAnalyzing}
-                >
-                  <Sparkles size={16} color={colors.background} />
-                  <Text style={styles.aiButtonText}>Analizar con IA (Gemini)</Text>
-                </Pressable>
-              ) : (
-                <Pressable
-                  onPress={handleConfigureGemini}
-                  style={styles.aiButton}
-                >
-                  <Settings size={16} color="#a855f7" />
-                  <Text style={[styles.aiButtonText, { color: '#a855f7' }]}>Configurar Gemini</Text>
-                </Pressable>
-              )}
-              {hasGeminiKey && (
-                <Pressable onPress={handleConfigureGemini} style={styles.aiSettingsBtn}>
-                  <Settings size={18} color={colors.textMuted} />
-                </Pressable>
-              )}
-            </View>
+            )}
 
             {/* Scanning steps text if active */}
             {isAnalyzing && (
@@ -2380,7 +2367,7 @@ function createStyles(colors: typeof Colors.dark) {
     fontWeight: '700',
     padding: 0,
   },
-  analyzerButtonsRow: {
+  mediaRow: {
     flexDirection: 'row',
     gap: 8,
     marginBottom: 8,
@@ -2394,22 +2381,21 @@ function createStyles(colors: typeof Colors.dark) {
     borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.cardBorder,
-    height: 44,
-    gap: 6,
+    height: 40,
+    gap: 4,
   },
   mediaButtonText: {
     color: colors.text,
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '600',
   },
   analyzeTrigger: {
-    flex: 2,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#a855f7',
     borderRadius: 10,
-    height: 44,
+    height: 40,
     gap: 6,
   },
   analyzeTriggerDisabled: {
@@ -2446,25 +2432,22 @@ function createStyles(colors: typeof Colors.dark) {
     padding: 12,
   },
   resultTitleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
     marginBottom: 8,
   },
   resultTitle: {
     color: colors.text,
     fontSize: 16,
     fontWeight: '700',
-    flex: 1,
-    marginRight: 8,
   },
   resultPortion: {
     color: colors.textMuted,
     fontSize: 11,
+    marginTop: 2,
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
+    alignSelf: 'flex-start',
   },
   resultDetailsHeader: {
     flexDirection: 'row',
@@ -2853,7 +2836,7 @@ function createStyles(colors: typeof Colors.dark) {
   aiRow: {
     flexDirection: 'row',
     gap: 8,
-    marginTop: 8,
+    marginTop: 6,
   },
   aiButton: {
     flex: 1,
@@ -2864,25 +2847,21 @@ function createStyles(colors: typeof Colors.dark) {
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#a855f7',
-    height: 44,
+    height: 40,
     gap: 6,
+    paddingHorizontal: 12,
   },
   aiButtonDisabled: {
     opacity: 0.4,
   },
   aiButtonText: {
     color: '#fff',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
   },
-  aiSettingsBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.cardBorder,
-    alignItems: 'center',
-    justifyContent: 'center',
+  aiSettingsInline: {
+    marginLeft: 4,
+    padding: 4,
   },
 });
 }

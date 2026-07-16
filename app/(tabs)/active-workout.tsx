@@ -14,7 +14,7 @@ import { useTheme } from '../../src/contexts/ThemeContext';
 import useWorkoutRunner from '../../src/hooks/useWorkoutRunner';
 import ExerciseVisualizer from '../../src/components/ExerciseVisualizer';
 import WorkoutTimer from '../../src/components/WorkoutTimer';
-import { ChevronRight, ChevronLeft, Play, Pause, Square, Award, Plus, Trash2, Trophy, Bell, BellOff } from 'lucide-react-native';
+import { ChevronRight, ChevronLeft, Play, Pause, Square, Award, Plus, Trash2, Trophy, Bell, BellOff, Zap } from 'lucide-react-native';
 import { translateMuscle, translateEquipment, translateExerciseName } from '../../src/constants/Translations';
 
 export default function ActiveWorkoutScreen() {
@@ -29,6 +29,8 @@ export default function ActiveWorkoutScreen() {
     nextExercise,
     isDoNotDisturb,
     toggleDoNotDisturb,
+    isGymMode,
+    toggleGymMode,
     pauseWorkout,
     resumeWorkout,
     nextStep,
@@ -42,10 +44,29 @@ export default function ActiveWorkoutScreen() {
     removeSet,
     isPrSet,
     totalVolume,
+    warmupExercises,
+    cooldownExercises,
   } = useWorkoutRunner();
 
   const { colors } = useTheme();
   const styles = React.useMemo(() => createStyles(colors), [colors]);
+
+  const handleFinishWithCooldown = () => {
+    const cooldownText = cooldownExercises
+      .map((ex: { name: string; duration: number; reps?: number }) =>
+        `• ${ex.name} (${ex.duration}s${ex.reps ? `, ${ex.reps} reps` : ''})`
+      )
+      .join('\n');
+
+    Alert.alert(
+      'Finalizar Entrenamiento',
+      `¿Estás seguro?\n\nDespués de finalizar, realiza estos ejercicios de enfriamiento:\n\n${cooldownText}`,
+      [
+        { text: 'Finalizar', onPress: endWorkout, style: 'destructive' },
+        { text: 'Cancelar', style: 'cancel' },
+      ]
+    );
+  };
 
   const handleStopPress = () => {
     Alert.alert(
@@ -61,7 +82,7 @@ export default function ActiveWorkoutScreen() {
         },
         {
           text: 'Finalizar Entrenamiento',
-          onPress: endWorkout,
+          onPress: handleFinishWithCooldown,
           style: 'destructive',
         },
         { text: 'Cancelar', style: 'cancel' },
@@ -72,13 +93,30 @@ export default function ActiveWorkoutScreen() {
   if (!isActive || !currentExercise) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.noWorkoutContainer}>
-          <Award size={64} color={colors.primary} style={styles.noWorkoutIcon} />
-          <Text style={styles.noWorkoutTitle}>¡Empieza a Entrenar!</Text>
-          <Text style={styles.noWorkoutSubtitle}>
-            No tienes ningún entrenamiento activo en este momento. Ve a la pestaña de "Mis Rutinas" para iniciar una rutina personalizada.
-          </Text>
-        </View>
+        <ScrollView contentContainerStyle={styles.noWorkoutScrollContent}>
+          <View style={styles.noWorkoutTopSection}>
+            <Award size={64} color={colors.primary} style={styles.noWorkoutIcon} />
+            <Text style={styles.noWorkoutTitle}>¡Empieza a Entrenar!</Text>
+            <Text style={styles.noWorkoutSubtitle}>
+              No tienes ningún entrenamiento activo en este momento. Ve a la pestaña de "Mis Rutinas" para iniciar una rutina personalizada.
+            </Text>
+          </View>
+
+          <View style={[styles.warmupSection, isGymMode && styles.warmupSectionProminent]}>
+            <Text style={styles.warmupTitle}>¿Calentamiento rápido?</Text>
+            <Text style={styles.warmupSubtitle}>Antes de empezar, prueba estos ejercicios:</Text>
+            <View style={styles.warmupList}>
+              {warmupExercises.map((ex, i) => (
+                <View key={i} style={styles.warmupItem}>
+                  <Text style={styles.warmupItemName}>{ex.name}</Text>
+                  <Text style={styles.warmupItemMeta}>
+                    {ex.duration}s{'reps' in ex ? ` · ${ex.reps} reps` : ''}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -137,6 +175,7 @@ export default function ActiveWorkoutScreen() {
         <ExerciseVisualizer
           path={currentExercise.gif_url}
           type="gif"
+          priority="high"
           style={styles.gifContainer}
         />
 
@@ -233,6 +272,17 @@ export default function ActiveWorkoutScreen() {
       <View style={styles.controlPanel}>
         <View style={styles.navButtonsRow}>
           <Pressable
+            onPress={toggleGymMode}
+            style={[
+              styles.navButton,
+              isGymMode ? styles.gymModeActive : styles.gymModeInactive,
+              isGymMode && styles.gymModeButton,
+            ]}
+          >
+            <Zap size={20} color={isGymMode ? colors.primary : colors.textMuted} />
+          </Pressable>
+
+          <Pressable
             onPress={toggleDoNotDisturb}
             style={[styles.navButton, isDoNotDisturb && styles.dndButtonActive]}
           >
@@ -293,12 +343,14 @@ function createStyles(colors: typeof Colors.dark) {
   scrollContainer: {
     paddingBottom: 180,
   },
-  noWorkoutContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  noWorkoutScrollContent: {
+    flexGrow: 1,
+    paddingTop: 80,
+    paddingBottom: 40,
+  },
+  noWorkoutTopSection: {
     alignItems: 'center',
     paddingHorizontal: 32,
-    paddingTop: 80,
   },
   noWorkoutIcon: {
     marginBottom: 24,
@@ -315,6 +367,47 @@ function createStyles(colors: typeof Colors.dark) {
     fontSize: 15,
     textAlign: 'center',
     lineHeight: 22,
+  },
+  warmupSection: {
+    marginTop: 40,
+    paddingHorizontal: 24,
+  },
+  warmupSectionProminent: {
+    marginTop: 48,
+  },
+  warmupTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  warmupSubtitle: {
+    color: colors.textMuted,
+    fontSize: 13,
+    marginBottom: 16,
+  },
+  warmupList: {
+    gap: 8,
+  },
+  warmupItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
+  warmupItemName: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  warmupItemMeta: {
+    color: colors.textMuted,
+    fontSize: 12,
   },
   progressSection: {
     paddingHorizontal: 20,
@@ -592,6 +685,18 @@ function createStyles(colors: typeof Colors.dark) {
   dndButtonActive: {
     backgroundColor: 'rgba(239, 68, 68, 0.15)',
     borderColor: colors.accent,
+  },
+  gymModeActive: {
+    backgroundColor: `rgba(${pR}, ${pG}, ${pB}, 0.15)`,
+    borderColor: colors.primary,
+  },
+  gymModeInactive: {
+    opacity: 0.6,
+  },
+  gymModeButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
   },
   controlBtn: {
     flex: 1,

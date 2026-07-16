@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-    android:minWidth="250dp"
+    android:minWidth="110dp"
     android:minHeight="50dp"
-    android:minResizeWidth="180dp"
+    android:minResizeWidth="80dp"
     android:minResizeHeight="40dp"
     android:updatePeriodMillis="86400000"
-    android:initialLayout="@layout/gym_widget_layout"
+    android:initialLayout="@layout/quick_widget_layout"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
-    android:description="Último entrenamiento, racha y acceso rápido" />
+    android:description="Acceso rápido a entrenar, agua y escáner" />

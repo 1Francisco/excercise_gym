@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Routine, WorkoutSession, ExerciseProgress, SetEntry, RoutineExercise, ThemeMode } from '../types/exercise';
-import { MealEntry, WaterLog, WeightEntry } from '../types/nutrition';
+import { Routine, WorkoutSession, ExerciseProgress, SetEntry, RoutineExercise, ThemeMode, CustomExercise } from '../types/exercise';
+import { BodyMeasurement, MealEntry, WaterLog, WeightEntry } from '../types/nutrition';
 
 const ROUTINES_STORAGE_KEY = '@fitness_routines_v1';
 const ACTIVE_WORKOUT_STORAGE_KEY = '@active_workout_state_v1';
@@ -439,6 +439,35 @@ export const storage = {
     } catch { return false; }
   },
 
+  // ─── Body Measurements ──────────────────────────────────────────
+
+  async getBodyMeasurements(): Promise<BodyMeasurement[]> {
+    try {
+      const json = await AsyncStorage.getItem('@body_measurements_v1');
+      return json ? JSON.parse(json) : [];
+    } catch { return []; }
+  },
+
+  async saveBodyMeasurement(measurement: BodyMeasurement): Promise<boolean> {
+    try {
+      const list = await this.getBodyMeasurements();
+      const idx = list.findIndex(m => m.date === measurement.date);
+      if (idx >= 0) list[idx] = measurement;
+      else list.push(measurement);
+      await AsyncStorage.setItem('@body_measurements_v1', JSON.stringify(list));
+      return true;
+    } catch { return false; }
+  },
+
+  async deleteBodyMeasurement(date: string): Promise<boolean> {
+    try {
+      const list = await this.getBodyMeasurements();
+      const filtered = list.filter(m => m.date !== date);
+      await AsyncStorage.setItem('@body_measurements_v1', JSON.stringify(filtered));
+      return true;
+    } catch { return false; }
+  },
+
   // ─── Weight History ─────────────────────────────────────────────
 
   async getWeightHistory(): Promise<WeightEntry[]> {
@@ -466,6 +495,35 @@ export const storage = {
       console.error('Error al guardar peso:', e);
       return false;
     }
+  },
+
+  // ─── Custom Exercises ─────────────────────────────────────────
+
+  async getCustomExercises(): Promise<CustomExercise[]> {
+    try {
+      const json = await AsyncStorage.getItem('@custom_exercises_v1');
+      return json ? JSON.parse(json) : [];
+    } catch { return []; }
+  },
+
+  async saveCustomExercise(exercise: CustomExercise): Promise<boolean> {
+    try {
+      const list = await this.getCustomExercises();
+      const idx = list.findIndex(e => e.id === exercise.id);
+      if (idx >= 0) list[idx] = exercise;
+      else list.push(exercise);
+      await AsyncStorage.setItem('@custom_exercises_v1', JSON.stringify(list));
+      return true;
+    } catch { return false; }
+  },
+
+  async deleteCustomExercise(id: string): Promise<boolean> {
+    try {
+      const list = await this.getCustomExercises();
+      const filtered = list.filter(e => e.id !== id);
+      await AsyncStorage.setItem('@custom_exercises_v1', JSON.stringify(filtered));
+      return true;
+    } catch { return false; }
   },
 
   // ─── Theme Preference ──────────────────────────────────────────

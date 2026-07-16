@@ -37,6 +37,15 @@ export interface DailyLog {
   weight?: number;
 }
 
+export interface BodyMeasurement {
+  date: string;
+  bodyFat?: number;
+  waist?: number;
+  chest?: number;
+  arms?: number;
+  notes?: string;
+}
+
 export interface FoodResult {
   name: string;
   calories: number;

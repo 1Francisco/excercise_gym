@@ -1,6 +1,7 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { StyleSheet, Text, View, Pressable } from 'react-native';
-import { Link } from 'expo-router';
+import { useRouter } from 'expo-router';
+import { Image } from 'expo-image';
 import { Exercise } from '../types/exercise';
 import Colors from '../constants/Colors';
 import ExerciseVisualizer from './ExerciseVisualizer';
@@ -8,6 +9,7 @@ import { ChevronRight } from 'lucide-react-native';
 import { translateMuscle, translateEquipment, translateExerciseName } from '../constants/Translations';
 import { useTheme } from '../contexts/ThemeContext';
 
+const BASE_MEDIA_URL = 'https://raw.githubusercontent.com/ievenight/exercises-dataset/master';
 
 interface ExerciseCardProps {
   exercise: Exercise;
@@ -18,12 +20,21 @@ interface ExerciseCardProps {
 export default function ExerciseCard({ exercise, onPress, rightElement }: ExerciseCardProps) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const router = useRouter();
+
+  const handleNav = useCallback(() => {
+    const gifUrl = `${BASE_MEDIA_URL}/${exercise.gif_url}`;
+    Image.prefetch(gifUrl);
+    router.push(`/exercise/${exercise.id}`);
+  }, [exercise, router]);
+
   const CardContent = (
     <View style={styles.cardInner}>
       <ExerciseVisualizer
         path={exercise.image}
         type="image"
         style={styles.thumbnail}
+        priority="high"
       />
       <View style={styles.infoContainer}>
         <Text style={styles.name} numberOfLines={1}>
@@ -57,11 +68,9 @@ export default function ExerciseCard({ exercise, onPress, rightElement }: Exerci
   }
 
   return (
-    <Link href={`/exercise/${exercise.id}`} asChild>
-      <Pressable style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}>
-        {CardContent}
-      </Pressable>
-    </Link>
+    <Pressable onPress={handleNav} style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}>
+      {CardContent}
+    </Pressable>
   );
 }
 

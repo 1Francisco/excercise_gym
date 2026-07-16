@@ -6,14 +6,16 @@ import {
   ScrollView,
   Pressable,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Colors from '../../src/constants/Colors';
 import { useTheme } from '../../src/contexts/ThemeContext';
 import { storage } from '../../src/services/storage';
 import ProgressChart from '../../src/components/ProgressChart';
+import type { BodyMeasurement } from '../../src/types/nutrition';
 import type { WorkoutSession } from '../../src/types/exercise';
-import { BarChart3, Trophy, Flame, Dumbbell, ChevronDown, ChevronUp, Share2 } from 'lucide-react-native';
+import { BarChart3, Trophy, Flame, Dumbbell, ChevronDown, ChevronUp, Share2, Plus } from 'lucide-react-native';
 import ViewShot from 'react-native-view-shot';
 import { captureRef } from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
@@ -80,12 +82,14 @@ export default function ProgressScreen() {
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedSession, setExpandedSession] = useState<string | null>(null);
+  const [measurements, setMeasurements] = useState<BodyMeasurement[]>([]);
 
   useEffect(() => {
     storage.getWorkoutHistory().then((data) => {
       setSessions(data.reverse());
       setLoading(false);
     });
+    storage.getBodyMeasurements().then(setMeasurements);
   }, []);
 
   const viewShotRef = useRef<ViewShot>(null);
@@ -191,6 +195,53 @@ export default function ProgressScreen() {
                 height={140}
               />
             </View>
+
+            {/* ─── Body Measurements ────────────────────────── */}
+            {measurements.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Medidas Corporales</Text>
+                <View style={styles.measurementGrid}>
+                  {measurements.slice(-1).map(m => (
+                    <React.Fragment key={m.date}>
+                      {m.bodyFat && (
+                        <View style={styles.measurementCard}>
+                          <Text style={styles.measurementValue}>{m.bodyFat}%</Text>
+                          <Text style={styles.measurementLabel}>Grasa Corporal</Text>
+                        </View>
+                      )}
+                      {m.waist && (
+                        <View style={styles.measurementCard}>
+                          <Text style={styles.measurementValue}>{m.waist}cm</Text>
+                          <Text style={styles.measurementLabel}>Cintura</Text>
+                        </View>
+                      )}
+                      {m.chest && (
+                        <View style={styles.measurementCard}>
+                          <Text style={styles.measurementValue}>{m.chest}cm</Text>
+                          <Text style={styles.measurementLabel}>Pecho</Text>
+                        </View>
+                      )}
+                      {m.arms && (
+                        <View style={styles.measurementCard}>
+                          <Text style={styles.measurementValue}>{m.arms}cm</Text>
+                          <Text style={styles.measurementLabel}>Brazos</Text>
+                        </View>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </View>
+                <Text style={styles.measurementDate}>
+                  {new Date(measurements[measurements.length-1].date + 'T12:00:00').toLocaleDateString('es-MX')}
+                </Text>
+                <Pressable
+                  onPress={() => Alert.alert('Añadir Medidas', 'Ve a la pantalla de Nutrición para registrar tus medidas.')}
+                  style={styles.addMeasurementButton}
+                >
+                  <Plus size={14} color={colors.primary} />
+                  <Text style={styles.addMeasurementText}>Añadir medidas</Text>
+                </Pressable>
+              </View>
+            )}
 
             {/* ─── Muscle Distribution ──────────────────────── */}
             {sortedMuscles.length > 0 && (
@@ -409,6 +460,32 @@ function createStyles(colors: typeof Colors.dark) {
     color: colors.primary,
     fontSize: 12,
     fontWeight: '700',
+  },
+
+  // ─── Body Measurements ──────────────────────────────
+  measurementGrid: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8,
+  },
+  measurementCard: {
+    flex: 1, minWidth: '45%', backgroundColor: colors.background,
+    borderRadius: 10, borderWidth: 1, borderColor: colors.cardBorder,
+    padding: 12, alignItems: 'center', gap: 4,
+  },
+  measurementValue: {
+    color: colors.primary, fontSize: 20, fontWeight: '800',
+  },
+  measurementLabel: {
+    color: colors.textMuted, fontSize: 11, fontWeight: '600',
+  },
+  measurementDate: {
+    color: colors.textMuted, fontSize: 11, marginBottom: 8,
+  },
+  addMeasurementButton: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: colors.primary, borderStyle: 'dashed',
+  },
+  addMeasurementText: {
+    color: colors.primary, fontSize: 13, fontWeight: '600',
   },
 
   // ─── Session Cards ────────────────────────────────────

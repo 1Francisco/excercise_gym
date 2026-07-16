@@ -21,6 +21,7 @@ import SkeletonCard from '../../src/components/SkeletonCard';
 import { DEFAULT_ROUTINES } from '../../src/constants/defaultRoutines';
 import { Plus, Trash2, Play, Edit3, X, Check, Search, Copy, Bell, BellOff } from 'lucide-react-native';
 import { requestNotificationPermissions, scheduleDailyReminder, cancelAllScheduled, getSavedReminder } from '../../src/services/notifications';
+import { exportAllData, importAllData } from '../../src/services/backup';
 
 export default function RoutinesScreen() {
   const { colors } = useTheme();
@@ -178,6 +179,21 @@ export default function RoutinesScreen() {
     setReminderEnabled(false);
   };
 
+  const handleExportData = async () => {
+    const ok = await exportAllData();
+    if (ok) Alert.alert('Exportado', 'Tus datos se han exportado correctamente.');
+    else Alert.alert('Error', 'No se pudieron exportar los datos.');
+  };
+
+  const handleImportData = async () => {
+    const result = await importAllData();
+    if (result.success) {
+      Alert.alert('Importado', result.message);
+    } else if (result.message !== 'Importación cancelada') {
+      Alert.alert('Error', result.message);
+    }
+  };
+
   const renderNotificationSection = () => (
     <View style={styles.notificationSection}>
       <View style={styles.notificationHeader}>
@@ -244,6 +260,19 @@ export default function RoutinesScreen() {
           </View>
         </View>
       )}
+
+      {/* ─── Data Backup Section ─────────────────────────── */}
+      <View style={styles.backupSection}>
+        <Text style={styles.sectionTitle}>Respaldar Datos</Text>
+        <View style={styles.backupRow}>
+          <Pressable onPress={handleExportData} style={styles.exportButton}>
+            <Text style={styles.exportButtonText}>Exportar Datos</Text>
+          </Pressable>
+          <Pressable onPress={handleImportData} style={styles.importButton}>
+            <Text style={styles.importButtonText}>Importar Datos</Text>
+          </Pressable>
+        </View>
+      </View>
     </View>
   );
 
@@ -806,6 +835,44 @@ function createStyles(colors: typeof Colors.dark) {
     color: colors.accent,
     fontWeight: '700',
     fontSize: 14,
+  },
+
+  backupSection: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.cardBorder,
+  },
+  backupRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+  },
+  exportButton: {
+    flex: 1,
+    backgroundColor: colors.primary,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  exportButtonText: {
+    color: colors.background,
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  importButton: {
+    flex: 1,
+    backgroundColor: `rgba(${pR}, ${pG}, ${pB}, 0.1)`,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  importButtonText: {
+    color: colors.primary,
+    fontWeight: '700',
+    fontSize: 13,
   },
 
   modalSub: {

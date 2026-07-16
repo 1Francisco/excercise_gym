@@ -1,52 +1,45 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, ActivityIndicator } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { Dumbbell } from 'lucide-react-native';
 import { useTheme } from '../contexts/ThemeContext';
 
 interface ExerciseVisualizerProps {
-  path: string; // The path from the JSON (e.g. 'images/0001-2gPfomN.jpg' or 'videos/0001-2gPfomN.gif')
+  path: string;
   type: 'image' | 'gif';
   style?: any;
+  priority?: 'low' | 'normal' | 'high';
 }
 
 const BASE_MEDIA_URL = 'https://raw.githubusercontent.com/ievenight/exercises-dataset/master';
 
-export default function ExerciseVisualizer({ path, type, style }: ExerciseVisualizerProps) {
+export default function ExerciseVisualizer({ path, type, style, priority = 'normal' }: ExerciseVisualizerProps) {
   const { colors } = useTheme();
-  const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
 
-  // Build the complete CDN URL for the media asset
   const mediaUrl = `${BASE_MEDIA_URL}/${path}`;
 
-  return (
-    <View style={[styles.container, style]}>
-      {isLoading && (
-        <View style={styles.loaderContainer}>
-          <ActivityIndicator size="small" color={colors.primary} />
-        </View>
-      )}
-
-      {hasError ? (
+  if (hasError) {
+    return (
+      <View style={[styles.container, style]}>
         <View style={styles.errorContainer}>
           <Dumbbell size={40} color={colors.textMuted} />
         </View>
-      ) : (
-        <Image
-          source={{ uri: mediaUrl }}
-          style={styles.image}
-          contentFit="contain"
-          transition={300}
-          cachePolicy="disk" // Keep images/GIFs cached on disk for offline capabilities
-          onLoadStart={() => setIsLoading(true)}
-          onLoadEnd={() => setIsLoading(false)}
-          onError={() => {
-            setIsLoading(false);
-            setHasError(true);
-          }}
-        />
-      )}
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.container, style]}>
+      <Image
+        source={{ uri: mediaUrl }}
+        style={styles.image}
+        contentFit="contain"
+        transition={500}
+        cachePolicy="disk"
+        priority={priority}
+        onError={() => setHasError(true)}
+      />
     </View>
   );
 }

@@ -3,6 +3,8 @@ import { Exercise, SetEntry, ExerciseProgress, WorkoutSession, RoutineExercise }
 import { storage } from '../services/storage';
 import { exercises } from './useExerciseFilter';
 import { notifyRestEnd } from '../utils/notifications';
+import { updateGymWidget } from '../services/widgetBridge';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 
 const DEFAULT_REST_TIME = 30;
 
@@ -14,6 +16,8 @@ export default function useWorkoutRunner() {
   const [isActive, setIsActive] = useState<boolean>(false);
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [isDoNotDisturb, setIsDoNotDisturb] = useState<boolean>(false);
+  const [isGymMode, setIsGymMode] = useState<boolean>(false);
+  const screenAwakeRef = useRef(false);
 
   const [currentSets, setCurrentSets] = useState<SetEntry[]>([]);
   const [completedProgress, setCompletedProgress] = useState<Record<string, ExerciseProgress>>({});
@@ -118,8 +122,23 @@ export default function useWorkoutRunner() {
         });
       }, 1000);
     }
-    return () => clearTimer();
-  }, [isActive, isResting, isPaused, clearTimer, currentIndex, persistProgress, currentRestTime]);
+
+    if (isGymMode && isResting) {
+      activateKeepAwakeAsync();
+      screenAwakeRef.current = true;
+    } else if (screenAwakeRef.current) {
+      deactivateKeepAwake();
+      screenAwakeRef.current = false;
+    }
+
+    return () => {
+      clearTimer();
+      if (screenAwakeRef.current) {
+        deactivateKeepAwake();
+        screenAwakeRef.current = false;
+      }
+    };
+  }, [isActive, isResting, isPaused, clearTimer, currentIndex, persistProgress, currentRestTime, isGymMode]);
 
   // ─── Set Management ────────────────────────────────────────
 
@@ -249,6 +268,10 @@ export default function useWorkoutRunner() {
     setIsDoNotDisturb((prev) => !prev);
   }, []);
 
+  const toggleGymMode = useCallback(() => {
+    setIsGymMode((prev) => !prev);
+  }, []);
+
   async function finishWorkout() {
     clearTimer();
     const allExercises = { ...completedProgress };
@@ -279,6 +302,15 @@ export default function useWorkoutRunner() {
     };
 
     await storage.saveWorkoutSession(session);
+    const totalVolume = Object.values(allExercises).reduce(
+      (sum, e) => sum + e.sets.reduce((ss, s) => ss + s.reps * s.weight, 0),
+      0
+    );
+    const exerciseNames = Object.values(allExercises)
+      .map((e) => exercises.find((ex) => ex.id === e.exerciseId)?.name ?? '')
+      .filter(Boolean)
+      .join(', ');
+    updateGymWidget(session.date, String(totalVolume), exerciseNames, '');
     await storage.clearActiveWorkout();
 
     setIsActive(false);
@@ -309,12 +341,29 @@ export default function useWorkoutRunner() {
     [currentExercise, personalRecords]
   );
 
+  const WARMUP_EXERCISES = [
+    { name: 'Rotación de hombros', duration: 30 },
+    { name: 'Estiramiento de cuello', duration: 20 },
+    { name: 'Círculos de brazos', duration: 30 },
+    { name: 'Rotación de cadera', duration: 20 },
+    { name: 'Sentadillas sin peso', duration: 30, reps: 10 },
+  ] as const;
+
+  const COOLDOWN_EXERCISES = [
+    { name: 'Estiramiento de pectoral', duration: 30 },
+    { name: 'Estiramiento de espalda', duration: 30 },
+    { name: 'Estiramiento de cuádriceps', duration: 30 },
+    { name: 'Estiramiento de isquiotibiales', duration: 30 },
+  ] as const;
+
   return {
     isActive,
     isPaused,
     isResting,
     isDoNotDisturb,
     toggleDoNotDisturb,
+    isGymMode,
+    toggleGymMode,
     timeRemaining,
     currentIndex,
     totalExercises: workoutExercises.length,
@@ -337,5 +386,7 @@ export default function useWorkoutRunner() {
     totalVolume: currentSets
       .filter((s) => s.completed)
       .reduce((sum, s) => sum + s.reps * s.weight, 0),
+    warmupExercises: WARMUP_EXERCISES,
+    cooldownExercises: COOLDOWN_EXERCISES,
   };
 }

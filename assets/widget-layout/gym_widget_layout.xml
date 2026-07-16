@@ -5,30 +5,36 @@
     android:layout_height="match_parent"
     android:gravity="center"
     android:orientation="vertical"
-    android:padding="16dp"
+    android:padding="12dp"
     android:background="@android:color/background_dark">
 
     <TextView
+        android:id="@+id/widget_title"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="💪"
-        android:textSize="32sp"
-        android:layout_marginBottom="4dp"/>
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Exercises Gym"
+        android:text="💪 Exercises Gym"
         android:textColor="#10b981"
         android:textSize="14sp"
         android:textStyle="bold"/>
 
     <TextView
+        android:id="@+id/widget_subtitle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Toca para abrir"
         android:textColor="#a1a1aa"
         android:textSize="11sp"
         android:layout_marginTop="2dp"/>
+
+    <TextView
+        android:id="@+id/widget_body"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textColor="#71717a"
+        android:textSize="10sp"
+        android:layout_marginTop="1dp"
+        android:maxLines="1"
+        android:ellipsize="end"/>
 
 </LinearLayout>
