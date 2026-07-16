@@ -1,4 +1,4 @@
-const { withAndroidManifest, withMainApplication } = require('@expo/config-plugins');
+const { withAndroidManifest, withMainApplication, withDangerousMod } = require('@expo/config-plugins');
 const path = require('path');
 const fs = require('fs');
 
@@ -388,6 +388,21 @@ class GymWidgetPackage : ModuleProvider {
 }
 
 function withGymWidget(config) {
+  config = withDangerousMod(config, [
+    'android',
+    (config) => {
+      try {
+        const root = config.modRequest.projectRoot;
+        copyResources(root);
+        createKotlinProviders(root);
+        createWidgetModule(root);
+      } catch (e) {
+        console.warn('[withGymWidget] Failed to set up widget resources:', e.message);
+      }
+      return config;
+    },
+  ]);
+
   config = withAndroidManifest(config, (config) => {
     config.modResults = registerWidgetProviders(config.modResults);
     return config;
@@ -422,13 +437,5 @@ function withGymWidget(config) {
 }
 
 module.exports = function withGymWidgetPlugin(config) {
-  try {
-    const root = config.modRequest?.projectRoot || process.cwd();
-    copyResources(root);
-    createKotlinProviders(root);
-    createWidgetModule(root);
-  } catch (e) {
-    console.warn('[withGymWidget] Failed to set up widget resources:', e.message);
-  }
   return withGymWidget(config);
 };
