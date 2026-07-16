@@ -7,5 +7,4 @@
     android:updatePeriodMillis="86400000"
     android:initialLayout="@layout/progress_widget_layout"
     android:resizeMode="horizontal|vertical"
-    android:widgetCategory="home_screen"
-    android:description="Progreso semanal con racha, entrenos y calorías" />
+    android:widgetCategory="home_screen" />

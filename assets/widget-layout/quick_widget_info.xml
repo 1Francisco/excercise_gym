@@ -7,5 +7,4 @@
     android:updatePeriodMillis="86400000"
     android:initialLayout="@layout/quick_widget_layout"
     android:resizeMode="horizontal|vertical"
-    android:widgetCategory="home_screen"
-    android:description="Acceso rápido a entrenar, agua y escáner" />
+    android:widgetCategory="home_screen" />

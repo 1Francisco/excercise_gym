@@ -7,5 +7,4 @@
     android:updatePeriodMillis="86400000"
     android:initialLayout="@layout/gym_widget_layout"
     android:resizeMode="horizontal|vertical"
-    android:widgetCategory="home_screen"
-    android:description="Último entrenamiento, racha y acceso rápido" />
+    android:widgetCategory="home_screen" />
