@@ -1,10 +1,18 @@
-import { Platform } from 'react-native';
+import { Platform, NativeModules } from 'react-native';
+
+function getGymWidget() {
+  try {
+    return NativeModules.GymWidget || require('expo-modules-core').NativeModulesProxy.GymWidget;
+  } catch {
+    return null;
+  }
+}
 
 export async function updateWidgetWithWorkout(date: string, volume: number, exercisesCount: number) {
   if (Platform.OS !== 'android') return;
 
   try {
-    const GymWidget = require('expo-modules-core').NativeModulesProxy.GymWidget;
+    const GymWidget = getGymWidget();
     if (GymWidget?.updateGymWidget) {
       await GymWidget.updateGymWidget(date, String(volume), `${exercisesCount} ejercicios`, '');
     }
@@ -17,7 +25,7 @@ export async function updateGymWidget(date: string, volume: string, exercises: s
   if (Platform.OS !== 'android') return;
 
   try {
-    const GymWidget = require('expo-modules-core').NativeModulesProxy.GymWidget;
+    const GymWidget = getGymWidget();
     if (GymWidget?.updateGymWidget) {
       await GymWidget.updateGymWidget(date, volume, exercises, streak);
     }
@@ -30,7 +38,7 @@ export async function updateProgressWidget(streak: string, monthlyWorkouts: stri
   if (Platform.OS !== 'android') return;
 
   try {
-    const GymWidget = require('expo-modules-core').NativeModulesProxy.GymWidget;
+    const GymWidget = getGymWidget();
     if (GymWidget?.updateProgressWidget) {
       await GymWidget.updateProgressWidget(streak, monthlyWorkouts, todayCalories, weeklyBars);
     }
@@ -43,7 +51,7 @@ export async function updateAllWidgets() {
   if (Platform.OS !== 'android') return;
 
   try {
-    const GymWidget = require('expo-modules-core').NativeModulesProxy.GymWidget;
+    const GymWidget = getGymWidget();
     if (GymWidget?.updateAllWidgets) {
       await GymWidget.updateAllWidgets();
     }

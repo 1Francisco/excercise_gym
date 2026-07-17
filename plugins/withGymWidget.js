@@ -124,8 +124,6 @@ class GymWidgetProvider : AppWidgetProvider() {
             views.setTextViewText(R.id.widget_body, "")
         }
 
-        views.setTextViewText(R.id.widget_streak_value, streak)
-
         val intent = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)
         val pi = PendingIntent.getActivity(ctx, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         views.setOnClickPendingIntent(R.id.widget_container, pi)
@@ -203,17 +201,17 @@ class QuickWidgetProvider : AppWidgetProvider() {
         val baseIntent = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)
 
         // Workout button
-        val workoutIntent = baseIntent?.clone()?.apply { putExtra("widget_action", "workout") }
+        val workoutIntent = baseIntent?.let { Intent(it) }?.apply { putExtra("widget_action", "workout") }
         val workoutPi = PendingIntent.getActivity(ctx, 10, workoutIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         views.setOnClickPendingIntent(R.id.quick_workout_btn, workoutPi)
 
         // Water button
-        val waterIntent = baseIntent?.clone()?.apply { putExtra("widget_action", "water") }
+        val waterIntent = baseIntent?.let { Intent(it) }?.apply { putExtra("widget_action", "water") }
         val waterPi = PendingIntent.getActivity(ctx, 11, waterIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         views.setOnClickPendingIntent(R.id.quick_water_btn, waterPi)
 
         // Scan button
-        val scanIntent = baseIntent?.clone()?.apply { putExtra("widget_action", "scan") }
+        val scanIntent = baseIntent?.let { Intent(it) }?.apply { putExtra("widget_action", "scan") }
         val scanPi = PendingIntent.getActivity(ctx, 12, scanIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         views.setOnClickPendingIntent(R.id.quick_scan_btn, scanPi)
 
@@ -229,9 +227,7 @@ class QuickWidgetProvider : AppWidgetProvider() {
 
   for (const [name, content] of Object.entries(providers)) {
     const filePath = path.join(dir, `${name}.kt`);
-    if (!fs.existsSync(filePath)) {
-      fs.writeFileSync(filePath, content);
-    }
+    fs.writeFileSync(filePath, content);
   }
 }
 
@@ -240,55 +236,58 @@ function createWidgetModule(projectRoot) {
   fs.mkdirSync(dir, { recursive: true });
 
   const modulePath = path.join(dir, 'GymWidgetModule.kt');
-  if (fs.existsSync(modulePath)) return;
 
   const content = `package ${PACKAGE}
 
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.Color
 import android.widget.RemoteViews
-import expo.modules.kotlin.modules.Module
-import expo.modules.kotlin.modules.ModuleDefinition
+import com.facebook.react.bridge.ReactApplicationContext
+import com.facebook.react.bridge.ReactContextBaseJavaModule
+import com.facebook.react.bridge.ReactMethod
 
-class GymWidgetModule : Module() {
-    override fun definition() = ModuleDefinition {
-        Name("GymWidget")
+class GymWidgetModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
+    override fun getName(): String {
+        return "GymWidget"
+    }
 
-        Function("updateAllWidgets") {
-            val ctx = appContext.reactContext ?: return@Function
+    @ReactMethod
+    fun updateAllWidgets() {
+        val ctx = reactApplicationContext
+        updateGymWidget(ctx)
+        updateProgressWidget(ctx)
+        updateQuickWidget(ctx)
+    }
 
-            updateGymWidget(ctx)
-            updateProgressWidget(ctx)
-            updateQuickWidget(ctx)
-        }
+    @ReactMethod
+    fun updateGymWidget(date: String, volume: String, exercises: String, streak: String) {
+        val ctx = reactApplicationContext
+        val prefs = ctx.getSharedPreferences("gym_widget_data", Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString("last_date", date)
+            .putString("last_volume", volume)
+            .putString("last_exercises", exercises)
+            .putString("streak", streak)
+            .apply()
+        updateGymWidget(ctx)
+        updateProgressWidget(ctx)
+    }
 
-        Function("updateGymWidget") { date: String, volume: String, exercises: String, streak: String ->
-            val ctx = appContext.reactContext ?: return@Function
-            val prefs = ctx.getSharedPreferences("gym_widget_data", Context.MODE_PRIVATE)
-            prefs.edit()
-                .putString("last_date", date)
-                .putString("last_volume", volume)
-                .putString("last_exercises", exercises)
-                .putString("streak", streak)
-                .apply()
-            updateGymWidget(ctx)
-            updateProgressWidget(ctx)
-        }
-
-        Function("updateProgressWidget") { streak: String, monthly: String, calories: String, weeklyBars: String ->
-            val ctx = appContext.reactContext ?: return@Function
-            val prefs = ctx.getSharedPreferences("gym_widget_data", Context.MODE_PRIVATE)
-            prefs.edit()
-                .putString("streak", streak)
-                .putString("monthly_workouts", monthly)
-                .putString("today_calories", calories)
-                .putString("weekly_bars", weeklyBars)
-                .apply()
-            updateProgressWidget(ctx)
-        }
+    @ReactMethod
+    fun updateProgressWidget(streak: String, monthly: String, calories: String, weeklyBars: String) {
+        val ctx = reactApplicationContext
+        val prefs = ctx.getSharedPreferences("gym_widget_data", Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString("streak", streak)
+            .putString("monthly_workouts", monthly)
+            .putString("today_calories", calories)
+            .putString("weekly_bars", weeklyBars)
+            .apply()
+        updateProgressWidget(ctx)
     }
 
     private fun updateGymWidget(ctx: Context) {
@@ -309,7 +308,6 @@ class GymWidgetModule : Module() {
             views.setTextViewText(R.id.widget_subtitle, "Toca para empezar")
             views.setTextViewText(R.id.widget_body, "")
         }
-        views.setTextViewText(R.id.widget_streak_value, streak)
 
         val intent = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)
         val pi = android.app.PendingIntent.getActivity(ctx, 0, intent, android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
@@ -352,13 +350,13 @@ class GymWidgetModule : Module() {
 
         val baseIntent = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)
 
-        val workoutIntent = baseIntent?.clone()?.apply { putExtra("widget_action", "workout") }
+        val workoutIntent = baseIntent?.let { Intent(it) }?.apply { putExtra("widget_action", "workout") }
         views.setOnClickPendingIntent(R.id.quick_workout_btn, android.app.PendingIntent.getActivity(ctx, 10, workoutIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE))
 
-        val waterIntent = baseIntent?.clone()?.apply { putExtra("widget_action", "water") }
+        val waterIntent = baseIntent?.let { Intent(it) }?.apply { putExtra("widget_action", "water") }
         views.setOnClickPendingIntent(R.id.quick_water_btn, android.app.PendingIntent.getActivity(ctx, 11, waterIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE))
 
-        val scanIntent = baseIntent?.clone()?.apply { putExtra("widget_action", "scan") }
+        val scanIntent = baseIntent?.let { Intent(it) }?.apply { putExtra("widget_action", "scan") }
         views.setOnClickPendingIntent(R.id.quick_scan_btn, android.app.PendingIntent.getActivity(ctx, 12, scanIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE))
 
         views.setOnClickPendingIntent(R.id.quick_widget_container, android.app.PendingIntent.getActivity(ctx, 13, baseIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE))
@@ -371,16 +369,21 @@ class GymWidgetModule : Module() {
   fs.writeFileSync(modulePath, content);
 
   const packagePath = path.join(dir, 'GymWidgetPackage.kt');
-  if (fs.existsSync(packagePath)) return;
 
   const packageContent = `package ${PACKAGE}
 
-import expo.modules.kotlin.ModuleProvider
-import expo.modules.kotlin.modules.Module
+import com.facebook.react.ReactPackage
+import com.facebook.react.bridge.NativeModule
+import com.facebook.react.bridge.ReactApplicationContext
+import com.facebook.react.uimanager.ViewManager
 
-class GymWidgetPackage : ModuleProvider {
-    override fun getModules(): List<Class<out Module>> {
-        return listOf(GymWidgetModule::class.java)
+class GymWidgetPackage : ReactPackage {
+    override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
+        return listOf(GymWidgetModule(reactContext))
+    }
+
+    override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> {
+        return emptyList()
     }
 }
 `;
