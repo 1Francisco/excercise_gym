@@ -124,7 +124,7 @@ class GymWidgetProvider : AppWidgetProvider() {
             views.setTextViewText(R.id.widget_body, "")
         }
 
-        val intent = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)
+        val intent = Intent(ctx, MainActivity::class.java)
         val pi = PendingIntent.getActivity(ctx, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         views.setOnClickPendingIntent(R.id.widget_container, pi)
 
@@ -170,7 +170,7 @@ class ProgressWidgetProvider : AppWidgetProvider() {
             views.setInt(barIds[i], "setBackgroundColor", if (pct > 0) primaryColor else emptyColor)
         }
 
-        val intent = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)
+        val intent = Intent(ctx, MainActivity::class.java)
         val pi = PendingIntent.getActivity(ctx, 1, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         views.setOnClickPendingIntent(R.id.progress_widget_container, pi)
 
@@ -198,20 +198,20 @@ class QuickWidgetProvider : AppWidgetProvider() {
     private fun updateAppWidget(ctx: Context, manager: AppWidgetManager, id: Int) {
         val views = RemoteViews(ctx.packageName, R.layout.quick_widget_layout)
 
-        val baseIntent = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)
+        val baseIntent = Intent(ctx, MainActivity::class.java)
 
         // Workout button
-        val workoutIntent = baseIntent?.let { Intent(it) }?.apply { putExtra("widget_action", "workout") }
+        val workoutIntent = Intent(baseIntent).apply { putExtra("widget_action", "workout") }
         val workoutPi = PendingIntent.getActivity(ctx, 10, workoutIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         views.setOnClickPendingIntent(R.id.quick_workout_btn, workoutPi)
 
         // Water button
-        val waterIntent = baseIntent?.let { Intent(it) }?.apply { putExtra("widget_action", "water") }
+        val waterIntent = Intent(baseIntent).apply { putExtra("widget_action", "water") }
         val waterPi = PendingIntent.getActivity(ctx, 11, waterIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         views.setOnClickPendingIntent(R.id.quick_water_btn, waterPi)
 
         // Scan button
-        val scanIntent = baseIntent?.let { Intent(it) }?.apply { putExtra("widget_action", "scan") }
+        val scanIntent = Intent(baseIntent).apply { putExtra("widget_action", "scan") }
         val scanPi = PendingIntent.getActivity(ctx, 12, scanIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         views.setOnClickPendingIntent(R.id.quick_scan_btn, scanPi)
 
@@ -309,7 +309,7 @@ class GymWidgetModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
             views.setTextViewText(R.id.widget_body, "")
         }
 
-        val intent = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)
+        val intent = Intent(ctx, MainActivity::class.java)
         val pi = android.app.PendingIntent.getActivity(ctx, 0, intent, android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
         views.setOnClickPendingIntent(R.id.widget_container, pi)
         manager.updateAppWidget(widgetClass, views)
@@ -337,7 +337,7 @@ class GymWidgetModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
             views.setInt(barIds[i], "setBackgroundColor", if (pct > 0) primaryColor else emptyColor)
         }
 
-        val intent = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)
+        val intent = Intent(ctx, MainActivity::class.java)
         val pi = android.app.PendingIntent.getActivity(ctx, 1, intent, android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
         views.setOnClickPendingIntent(R.id.progress_widget_container, pi)
         manager.updateAppWidget(widgetClass, views)
@@ -348,15 +348,15 @@ class GymWidgetModule(reactContext: ReactApplicationContext) : ReactContextBaseJ
         val widgetClass = ComponentName(ctx, QuickWidgetProvider::class.java)
         val views = RemoteViews(ctx.packageName, R.layout.quick_widget_layout)
 
-        val baseIntent = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)
+        val baseIntent = Intent(ctx, MainActivity::class.java)
 
-        val workoutIntent = baseIntent?.let { Intent(it) }?.apply { putExtra("widget_action", "workout") }
+        val workoutIntent = Intent(baseIntent).apply { putExtra("widget_action", "workout") }
         views.setOnClickPendingIntent(R.id.quick_workout_btn, android.app.PendingIntent.getActivity(ctx, 10, workoutIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE))
 
-        val waterIntent = baseIntent?.let { Intent(it) }?.apply { putExtra("widget_action", "water") }
+        val waterIntent = Intent(baseIntent).apply { putExtra("widget_action", "water") }
         views.setOnClickPendingIntent(R.id.quick_water_btn, android.app.PendingIntent.getActivity(ctx, 11, waterIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE))
 
-        val scanIntent = baseIntent?.let { Intent(it) }?.apply { putExtra("widget_action", "scan") }
+        val scanIntent = Intent(baseIntent).apply { putExtra("widget_action", "scan") }
         views.setOnClickPendingIntent(R.id.quick_scan_btn, android.app.PendingIntent.getActivity(ctx, 12, scanIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE))
 
         views.setOnClickPendingIntent(R.id.quick_widget_container, android.app.PendingIntent.getActivity(ctx, 13, baseIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE))
